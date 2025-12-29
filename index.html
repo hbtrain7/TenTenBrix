@@ -467,7 +467,7 @@
           spawnCounter = 0;
         }
 
-        // 2. 떨어지는 브릭 처리 (역순 순회로 splice 안전성 확보)
+        // 2. 떨어지는 브릭 처리
         for (let i = fallingBricks.length - 1; i >= 0; i--) {
           const b = fallingBricks[i];
           if (!b) continue;
@@ -477,28 +477,38 @@
 
           const gy = Math.floor(b.y + 1);
 
-          // 바닥 또는 다른 브릭에 닿았을 때
+          // [체크] 바닥에 닿았거나 아래에 브릭이 있는지 확인
           if (gy >= ROWS || (gy >= 0 && grid[gy] && grid[gy][b.x] !== 0)) {
             let fy = gy - 1;
 
-            // 게임 오버 조건 (상단 리미트)
+            // [방어 코드 1] 위로 밀려 올라가는 경우 대응 (인덱스 보정)
+            while (fy >= 0 && grid[fy] && grid[fy][b.x] !== 0) {
+              fy--;
+            }
+
+            // 게임 오버 조건
             if (fy < 2) {
               gameOver();
               return;
             }
 
-            // [핵심] 안착 시 데이터 보존 (id 포함)
-            if (grid[fy]) {
+            // [방어 코드 2] 덮어쓰기 방지: 빈 공간일 때만 안착
+            if (fy >= 0 && grid[fy] && grid[fy][b.x] === 0) {
               grid[fy][b.x] = {
                 value: b.value,
-                id: b.id,           // 실시간 추적을 위한 ID 필수 보존
+                id: b.id,
                 isDestroying: false
               };
-            }
 
-            fallingBricks.splice(i, 1);
-            globalAutoCheck();
-            applyGravity();
+              fallingBricks.splice(i, 1);
+
+              // [방어 코드 3] 안착 즉시 로직 실행 시 연산 꼬임 방지 (미세 딜레이)
+              // 이 50ms가 유령 매칭과 렉을 획기적으로 줄여줍니다.
+              setTimeout(() => {
+                globalAutoCheck();
+                applyGravity();
+              }, 50);
+            }
           }
         }
 
@@ -519,7 +529,6 @@
         requestAnimationFrame(update);
 
       } catch (error) {
-        // 아이폰에서 에러가 발생해도 게임 루프가 완전히 죽지 않도록 방어
         console.error("Game Loop Error:", error);
         requestAnimationFrame(update);
       }
