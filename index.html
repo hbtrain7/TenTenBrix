@@ -242,9 +242,13 @@
 
     function handleInput(e) {
       if (!gameActive || isPaused) return;
+
+      // 0. 좌표 계산
       const rect = canvas.getBoundingClientRect();
-      const sx = (e.clientX || (e.touches && e.touches[0].clientX)) - rect.left;
-      const sy = (e.clientY || (e.touches && e.touches[0].clientY)) - rect.top;
+      const clientX = e.clientX || (e.touches && e.touches[0].clientX);
+      const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+      const sx = clientX - rect.left;
+      const sy = clientY - rect.top;
 
       // 1. 아이템 수집 로직 (필드 아이템 터치)
       for (let i = fieldItems.length - 1; i >= 0; i--) {
@@ -253,14 +257,14 @@
           inventory.crossBomb++;
           fieldItems.splice(i, 1);
           updateItemUI();
-          return;
+          return; // 아이템 먹었으면 브릭 선택은 건너뜀
         }
       }
 
       const cx = Math.floor(sx / BLOCK_SIZE);
       const cy = Math.floor(sy / BLOCK_SIZE);
 
-      // 캔버스 밖 클릭 시 선택 해제 (사장님 건의사항 반영)
+      // 캔버스 밖 클릭 시 선택 해제
       if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) {
         selectedBricks = [];
         return;
@@ -276,68 +280,97 @@
       }
 
       // 3. 일반 브릭 선택 및 매칭 로직
-      if (grid[cy][cx] && grid[cy][cx].isDestroying) return;
+      // [검증] 현재 칸이 이미 파괴 중인 브릭이라면 터치 무시
+      if (grid[cy] && grid[cy][cx] && grid[cy][cx].isDestroying) return;
 
       let clicked = null;
-      const fIdx = fallingBricks.findIndex(b => b.x === cx && Math.round(b.y) === cy);
-      if (fIdx > -1) clicked = { ...fallingBricks[fIdx], isFalling: true };
-      else if (grid[cy][cx]) clicked = {
-        x: cx,
-        y: cy,
-        value: grid[cy][cx].value,
-        isFalling: false,
-        id: grid[cy][cx].id // <--- [수정] 그리드에 들어있는 "진짜 ID"를 가져와야 합니다!
-      };
 
+      // [우선순위 1] 떨어지는 브릭 확인 (ID 기반)
+      const fIdx = fallingBricks.findIndex(b => b.x === cx && Math.round(b.y) === cy);
+      if (fIdx > -1) {
+        clicked = { ...fallingBricks[fIdx], isFalling: true };
+      }
+      // [우선순위 2] 고정된 브릭 확인
+      else if (grid[cy] && grid[cy][cx] && grid[cy][cx] !== 0) {
+        clicked = {
+          x: cx,
+          y: cy,
+          value: grid[cy][cx].value,
+          isFalling: false,
+          id: grid[cy][cx].id // 진짜 ID 추적
+        };
+      }
+
+      // 클릭된 브릭이 유효할 경우만 진행
       if (clicked) {
+        // 이미 선택된 브릭인지 확인 (ID 기준)
         const idx = selectedBricks.findIndex(s => s.id === clicked.id);
+
         if (idx > -1) {
+          // 이미 선택된 거라면 해제
           selectedBricks.splice(idx, 1);
         } else {
+          // 새로운 선택 추가
           selectedBricks.push(clicked);
-          // [추가] 브릭을 선택할 때마다 나는 소리 (선택 피드백)
+
+          // 선택 효과음
           try { selBrickSfx.cloneNode().play().catch(e => { }); } catch (e) { }
 
+          // 2개가 선택되었을 때 매칭 확인
           if (selectedBricks.length === 2) {
-            const s1 = selectedBricks[0], s2 = selectedBricks[1];
+            const s1 = selectedBricks[0];
+            const s2 = selectedBricks[1];
 
             if (s1.value + s2.value === 10) {
-              // --- 성공 로직 ---
+              // --- [성공 로직] ---
               const now = Date.now();
               combo = (now - lastMatchTime < 2000) ? Math.min(combo + 1, 10) : 1;
               lastMatchTime = now;
 
+              // 각 브릭 제거 처리
               selectedBricks.forEach(s => {
                 if (s.isFalling) {
+                  // 공중 브릭 제거
                   fallingBricks = fallingBricks.filter(b => b.id !== s.id);
-                } else if (grid[s.y][s.x]) {
-                  grid[s.y][s.x].isDestroying = true;
-                  setTimeout(() => { grid[s.y][s.x] = 0; applyGravity(); }, 300);
+                } else {
+                  // 그리드 브릭 제거 (상태 검증 후 처리)
+                  if (grid[s.y] && grid[s.y][s.x] && grid[s.y][s.x].id === s.id) {
+                    grid[s.y][s.x].isDestroying = true;
+                    // 애니메이션 후 데이터 삭제 및 중력 적용
+                    setTimeout(() => {
+                      if (grid[s.y] && grid[s.y][s.x]) {
+                        grid[s.y][s.x] = 0;
+                        applyGravity();
+                      }
+                    }, 300);
+                  }
                 }
                 createBurstEffect(s.x, s.y);
               });
 
+              // 점수 및 콤보 UI 업데이트
               score += 100 * combo;
               scoreEl.innerText = score.toLocaleString();
               comboEl.innerText = `${combo} COMBO!`;
               comboEl.style.display = 'inline';
-              try { matchSfx.cloneNode().play(); } catch (e) { }
 
+              try { matchSfx.cloneNode().play().catch(e => { }); } catch (e) { }
+
+              // 아이템 생성 체크
               if (score - lastItemScore >= ITEM_THRESHOLD) {
                 spawnItem();
                 lastItemScore = score;
               }
-              selectedBricks = []; // 성공 시 초기화
+              selectedBricks = []; // 성공 시 비움
             } else {
-              // --- 실패 로직 (여기가 중요!) ---
+              // --- [실패 로직] ---
               try {
-                // BGM에 묻히지 않도록 cloneNode()를 사용하고, 볼륨을 체크해보세요.
                 const failSound = matchFailedSfx.cloneNode();
-                failSound.volume = 1.0; // 소리가 작다면 강제로 키움
+                failSound.volume = 1.0;
                 failSound.play().catch(e => { });
               } catch (e) { }
 
-              selectedBricks = []; // 실패 시에도 초기화
+              selectedBricks = []; // 실패 시 비움
             }
           }
         }
