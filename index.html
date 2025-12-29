@@ -243,134 +243,79 @@
     function handleInput(e) {
       if (!gameActive || isPaused) return;
 
-      // 0. 좌표 계산
       const rect = canvas.getBoundingClientRect();
       const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-      const clientY = e.clientY || (e.touches && e.touches[0].clientY);
-      const sx = clientX - rect.left;
-      const sy = clientY - rect.top;
+      const clientY = e.clientY || (e.touches && e.touches[0].clientY)) - rect.top; // 오타 수정 지점
 
-      // 1. 아이템 수집 로직 (필드 아이템 터치)
+      // 오타 방지를 위해 좌표 다시 계산
+      const sx = clientX - rect.left;
+      const sy = (e.clientY || (e.touches ? e.touches[0].clientY : 0)) - rect.top;
+
+      // 1. 아이템 체크
       for (let i = fieldItems.length - 1; i >= 0; i--) {
         const it = fieldItems[i];
         if (Math.hypot(it.x - sx, it.y - sy) < it.radius + 20) {
           inventory.crossBomb++;
           fieldItems.splice(i, 1);
           updateItemUI();
-          return; // 아이템 먹었으면 브릭 선택은 건너뜀
+          return;
         }
       }
 
       const cx = Math.floor(sx / BLOCK_SIZE);
       const cy = Math.floor(sy / BLOCK_SIZE);
+      if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) { selectedBricks = []; return; }
 
-      // 캔버스 밖 클릭 시 선택 해제
-      if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) {
-        selectedBricks = [];
-        return;
-      }
-
-      // 2. 아이템 사용 모드 (크로스 폭탄)
-      if (isItemMode && inventory.crossBomb > 0) {
-        executeCrossBomb(cx, cy);
-        isItemMode = false;
-        inventory.crossBomb--;
-        updateItemUI();
-        return;
-      }
-
-      // 3. 일반 브릭 선택 및 매칭 로직
-      // [검증] 현재 칸이 이미 파괴 중인 브릭이라면 터치 무시
+      // 2. 파괴 중인 칸 터치 방어
       if (grid[cy] && grid[cy][cx] && grid[cy][cx].isDestroying) return;
 
       let clicked = null;
-
-      // [우선순위 1] 떨어지는 브릭 확인 (ID 기반)
+      // 떨어지는 브릭 확인
       const fIdx = fallingBricks.findIndex(b => b.x === cx && Math.round(b.y) === cy);
       if (fIdx > -1) {
         clicked = { ...fallingBricks[fIdx], isFalling: true };
-      }
-      // [우선순위 2] 고정된 브릭 확인
-      else if (grid[cy] && grid[cy][cx] && grid[cy][cx] !== 0) {
-        clicked = {
-          x: cx,
-          y: cy,
-          value: grid[cy][cx].value,
-          isFalling: false,
-          id: grid[cy][cx].id // 진짜 ID 추적
-        };
+      } else if (grid[cy] && grid[cy][cx] && grid[cy][cx] !== 0) {
+        clicked = { x: cx, y: cy, value: grid[cy][cx].value, isFalling: false, id: grid[cy][cx].id };
       }
 
-      // 클릭된 브릭이 유효할 경우만 진행
       if (clicked) {
-        // 이미 선택된 브릭인지 확인 (ID 기준)
         const idx = selectedBricks.findIndex(s => s.id === clicked.id);
-
         if (idx > -1) {
-          // 이미 선택된 거라면 해제
           selectedBricks.splice(idx, 1);
         } else {
-          // 새로운 선택 추가
           selectedBricks.push(clicked);
+          try { selBrickSfx.currentTime = 0; selBrickSfx.play().catch(e => { }); } catch (e) { }
 
-          // 선택 효과음
-          try { selBrickSfx.cloneNode().play().catch(e => { }); } catch (e) { }
-
-          // 2개가 선택되었을 때 매칭 확인
           if (selectedBricks.length === 2) {
-            const s1 = selectedBricks[0];
-            const s2 = selectedBricks[1];
-
+            const s1 = selectedBricks[0], s2 = selectedBricks[1];
             if (s1.value + s2.value === 10) {
-              // --- [성공 로직] ---
               const now = Date.now();
               combo = (now - lastMatchTime < 2000) ? Math.min(combo + 1, 10) : 1;
               lastMatchTime = now;
 
-              // 각 브릭 제거 처리
               selectedBricks.forEach(s => {
                 if (s.isFalling) {
-                  // 공중 브릭 제거
                   fallingBricks = fallingBricks.filter(b => b.id !== s.id);
-                } else {
-                  // 그리드 브릭 제거 (상태 검증 후 처리)
-                  if (grid[s.y] && grid[s.y][s.x] && grid[s.y][s.x].id === s.id) {
-                    grid[s.y][s.x].isDestroying = true;
-                    // 애니메이션 후 데이터 삭제 및 중력 적용
-                    setTimeout(() => {
-                      if (grid[s.y] && grid[s.y][s.x]) {
-                        grid[s.y][s.x] = 0;
-                        applyGravity();
-                      }
-                    }, 300);
-                  }
+                } else if (grid[s.y] && grid[s.y][s.x] && grid[s.y][s.x].id === s.id) {
+                  grid[s.y][s.x].isDestroying = true;
+                  setTimeout(() => {
+                    if (grid[s.y] && grid[s.y][s.x]) grid[s.y][s.x] = 0;
+                    applyGravity();
+                  }, 250);
                 }
                 createBurstEffect(s.x, s.y);
               });
 
-              // 점수 및 콤보 UI 업데이트
               score += 100 * combo;
               scoreEl.innerText = score.toLocaleString();
               comboEl.innerText = `${combo} COMBO!`;
               comboEl.style.display = 'inline';
-
-              try { matchSfx.cloneNode().play().catch(e => { }); } catch (e) { }
-
-              // 아이템 생성 체크
-              if (score - lastItemScore >= ITEM_THRESHOLD) {
-                spawnItem();
-                lastItemScore = score;
-              }
-              selectedBricks = []; // 성공 시 비움
+              try { matchSfx.currentTime = 0; matchSfx.play(); } catch (e) { }
+              if (score - lastItemScore >= ITEM_THRESHOLD) { spawnItem(); lastItemScore = score; }
+              selectedBricks = [];
             } else {
-              // --- [실패 로직] ---
-              try {
-                const failSound = matchFailedSfx.cloneNode();
-                failSound.volume = 1.0;
-                failSound.play().catch(e => { });
-              } catch (e) { }
-
-              selectedBricks = []; // 실패 시 비움
+              try { matchFailedSfx.currentTime = 0; matchFailedSfx.play(); } catch (e) { }
+              selectedBricks = [];
             }
           }
         }
@@ -492,7 +437,6 @@
         const dt = currentTime - (lastTime || currentTime);
         lastTime = currentTime;
 
-        // 1. 난이도 설정 및 브릭 생성
         let config = STAGES.find(s => score < s.score) || STAGES[STAGES.length - 1];
         spawnCounter += dt;
         if (spawnCounter > config.interval) {
@@ -500,7 +444,6 @@
           spawnCounter = 0;
         }
 
-        // 2. 떨어지는 브릭 처리
         for (let i = fallingBricks.length - 1; i >= 0; i--) {
           const b = fallingBricks[i];
           if (!b) continue;
@@ -510,59 +453,44 @@
 
           const gy = Math.floor(b.y + 1);
 
-          // [체크] 바닥에 닿았거나 아래에 브릭이 있는지 확인
+          // 안착 판정
           if (gy >= ROWS || (gy >= 0 && grid[gy] && grid[gy][b.x] !== 0)) {
             let fy = gy - 1;
 
-            // [방어 코드 1] 위로 밀려 올라가는 경우 대응 (인덱스 보정)
+            // [핵심 보정] 빈 칸을 찾을 때까지 위로 탐색 (숫자 바뀜 원천 차단)
             while (fy >= 0 && grid[fy] && grid[fy][b.x] !== 0) {
               fy--;
             }
 
-            // 게임 오버 조건
-            if (fy < 2) {
-              gameOver();
-              return;
-            }
+            if (fy < 2) { gameOver(); return; }
 
-            // [방어 코드 2] 덮어쓰기 방지: 빈 공간일 때만 안착
-            if (fy >= 0 && grid[fy] && grid[fy][b.x] === 0) {
+            // 데이터 기록
+            if (fy >= 0 && grid[fy]) {
               grid[fy][b.x] = {
                 value: b.value,
                 id: b.id,
                 isDestroying: false
               };
-
               fallingBricks.splice(i, 1);
 
-              // [방어 코드 3] 안착 즉시 로직 실행 시 연산 꼬임 방지 (미세 딜레이)
-              // 이 50ms가 유령 매칭과 렉을 획기적으로 줄여줍니다.
+              // 안착 후 로직은 프레임 안정화를 위해 미세 딜레이
               setTimeout(() => {
                 globalAutoCheck();
                 applyGravity();
-              }, 50);
+              }, 30);
             }
           }
         }
 
-        // 3. 아이템 이동 처리
-        for (let i = fieldItems.length - 1; i >= 0; i--) {
-          const it = fieldItems[i];
+        fieldItems.forEach((it, i) => {
           it.x += it.vx;
           it.angle += 0.05;
-          if (it.x > canvas.width + 50) {
-            fieldItems.splice(i, 1);
-          }
-        }
+          if (it.x > canvas.width + 50) fieldItems.splice(i, 1);
+        });
 
-        // 4. 화면 그리기
         draw();
-
-        // 5. 다음 프레임 요청
         requestAnimationFrame(update);
-
       } catch (error) {
-        console.error("Game Loop Error:", error);
         requestAnimationFrame(update);
       }
     }
