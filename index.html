@@ -563,7 +563,7 @@
         ctx.restore();
       });
 
-      // 6. 횡단하는 아이템 (보라색 폭탄)
+      // 6. 횡단하는 아이템
       fieldItems.forEach(it => {
         ctx.save();
         ctx.translate(it.x, it.y);
@@ -574,52 +574,51 @@
         ctx.restore();
       });
 
-      // 7. [실시간 추적 테두리] - 아이폰 최적화 및 프리징 방지 버전
+      // 7. [실시간 추적 테두리] - 아이폰 최적화 완료
       selectedBricks = selectedBricks.filter(s => {
         let curX = -1, curY = -1;
-
         if (s.isFalling) {
-          // 떨어지는 브릭 추적
           const b = fallingBricks.find(fb => fb && fb.id === s.id);
           if (b) { curX = b.x; curY = b.y; }
         } else {
-          // 그리드 브릭 추적
           loop: for (let gy = 0; gy < ROWS; gy++) {
             if (!grid[gy]) continue;
             for (let gx = 0; gx < COLS; gx++) {
               const cell = grid[gy][gx];
               if (cell && cell.id === s.id && !cell.isDestroying) {
-                curX = gx; curY = gy;
-                break loop;
+                curX = gx; curY = gy; break loop;
               }
             }
           }
         }
-
-        // 브릭을 찾았다면 테두리를 그리고 배열에 유지(true)
         if (curX !== -1) {
           ctx.save();
           ctx.strokeStyle = "white"; ctx.lineWidth = 4;
           ctx.strokeRect(curX * BLOCK_SIZE + 5, curY * BLOCK_SIZE + 5, BLOCK_SIZE - 10, BLOCK_SIZE - 10);
           ctx.restore();
-
-          s.x = curX;
-          s.y = Math.round(curY);
+          s.x = curX; s.y = Math.round(curY);
           return true;
         }
-
-        // 못 찾았거나 터지는 중이면 자동 제거(false)
         return false;
       });
 
-      // 8. 이펙트(파티클)
-      effects.forEach((ef, i) => {
+      // 8. [핵심 최적화] 이펙트(파티클) - filter 방식으로 교체 (렉 방지)
+      // 살아있는 파티클만 남깁니다.
+      effects = effects.filter(ef => ef.life > 0);
+
+      effects.forEach((ef) => {
         ctx.save();
-        ctx.fillStyle = ef.color; ctx.globalAlpha = ef.life / 20;
-        ctx.beginPath(); ctx.arc(ef.px, ef.py, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = ef.color;
+        ctx.globalAlpha = ef.life / 20;
+        ctx.beginPath();
+        ctx.arc(ef.px, ef.py, 3, 0, Math.PI * 2);
+        ctx.fill();
         ctx.restore();
-        ef.px += ef.vx; ef.py += ef.vy; ef.life--;
-        if (ef.life <= 0) effects.splice(i, 1);
+
+        // 데이터 업데이트
+        ef.px += ef.vx;
+        ef.py += ef.vy;
+        ef.life--;
       });
     }
 
