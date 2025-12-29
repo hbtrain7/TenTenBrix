@@ -130,6 +130,7 @@
 
   <script>
     // --- [1] 변수 설정 ---
+    // --- [1] 변수 설정 ---
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const scoreEl = document.getElementById('scoreVal');
@@ -141,18 +142,18 @@
     let gameActive = false, isPaused = false, fallingBricks = [], lastTime = 0, spawnCounter = 0, selectedBricks = [];
     let effects = [];
 
-    // 아이템 관련 변수
     let inventory = { crossBomb: 0 };
     let fieldItems = [];
     let isItemMode = false;
     let lastItemScore = 0;
-    const ITEM_THRESHOLD = 10000; // 1만점 기준
+    const ITEM_THRESHOLD = 10000;
 
     const TERMINAL_VELOCITY = 0.025;
     const STAGES = [
-      { score: 800, interval: 1000, gravity: 0.00003, count: 1 },
-      { score: 5000, interval: 1000, gravity: 0.00004, count: 2 },
-      { score: 20000, interval: 900, gravity: 0.00005, count: 2 }
+      { score: 800, interval: 1000, gravity: 0.00003, count: 1 },    // 1단계
+      { score: 5000, interval: 1000, gravity: 0.00004, count: 2 },   // 2단계
+      { score: 20000, interval: 900, gravity: 0.00005, count: 2 },   // 3단계
+      { score: 50000, interval: 800, gravity: 0.00007, count: 3 }    // 4단계 (추가!)
     ];
 
     const introSfx = new Audio('sfx/intro.wav');
@@ -170,12 +171,8 @@
     // --- [2] 초기화 ---
     function init() {
       resize();
-
-      // 1. [음악/연출] 첫 클릭 시 인트로 재생 (한 번만 실행)
       const playIntroOnce = () => {
         introSfx.play().catch(e => { });
-        canvas.style.filter = "none";
-        canvas.style.transform = "scale(1)";
         window.removeEventListener('mousedown', playIntroOnce);
         window.removeEventListener('touchstart', playIntroOnce);
       };
@@ -183,41 +180,27 @@
       window.addEventListener('touchstart', playIntroOnce);
       window.addEventListener('resize', resize);
 
-      // 2. [아이템 버튼] 상단 보라색 폭탄 버튼 클릭 연결
       const bombBtn = document.getElementById('bombBtn');
       if (bombBtn) {
         bombBtn.addEventListener('mousedown', (e) => {
           e.stopPropagation();
           if (inventory.crossBomb > 0) {
             isItemMode = !isItemMode;
-
-            // 모드가 켜질 때만 "칭~" 하는 선택음 재생
             if (isItemMode) {
-              try {
-                selCrossBombSfx.currentTime = 0;
-                selCrossBombSfx.play().catch(e => { });
-              } catch (e) { }
+              try { selCrossBombSfx.currentTime = 0; selCrossBombSfx.play().catch(e => { }); } catch (e) { }
             }
-
             updateItemUI();
           }
         });
       }
 
-      // 3. [핵심: 버튼 연결] 메인 화면의 START 버튼 클릭 연결
-      const startBtn = document.getElementById('realStartBtn');
-      if (startBtn) {
-        startBtn.onclick = startGame; // 여기서 startGame이 연결되어야 합니다!
-      }
-
-      // 4. [입력 핸들러] 캔버스 내 게임 플레이 클릭 연결
+      document.getElementById('realStartBtn').onclick = startGame;
       canvas.addEventListener('mousedown', handleInput);
       canvas.addEventListener('touchstart', (e) => {
         if (gameActive) e.preventDefault();
         handleInput(e.touches[0]);
       }, { passive: false });
 
-      // 5. [그리드 초기화]
       grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
     }
 
@@ -226,7 +209,6 @@
       canvas.width = COLS * BLOCK_SIZE; canvas.height = ROWS * BLOCK_SIZE;
     }
 
-    // --- [3] 핵심 로직 ---
     function spawnBricks(count) {
       for (let i = 0; i < count; i++) {
         const x = Math.floor(Math.random() * COLS);
@@ -245,13 +227,10 @@
 
       const rect = canvas.getBoundingClientRect();
       const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-      const clientY = e.clientY || (e.touches && e.touches[0].clientY)) - rect.top; // 오타 수정 지점
-
-      // 오타 방지를 위해 좌표 다시 계산
+      const clientY = e.clientY || (e.touches && e.touches[0].clientY); // 괄호 오타 수정 완료
       const sx = clientX - rect.left;
-      const sy = (e.clientY || (e.touches ? e.touches[0].clientY : 0)) - rect.top;
+      const sy = clientY - rect.top;
 
-      // 1. 아이템 체크
       for (let i = fieldItems.length - 1; i >= 0; i--) {
         const it = fieldItems[i];
         if (Math.hypot(it.x - sx, it.y - sy) < it.radius + 20) {
@@ -265,12 +244,9 @@
       const cx = Math.floor(sx / BLOCK_SIZE);
       const cy = Math.floor(sy / BLOCK_SIZE);
       if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) { selectedBricks = []; return; }
-
-      // 2. 파괴 중인 칸 터치 방어
       if (grid[cy] && grid[cy][cx] && grid[cy][cx].isDestroying) return;
 
       let clicked = null;
-      // 떨어지는 브릭 확인
       const fIdx = fallingBricks.findIndex(b => b.x === cx && Math.round(b.y) === cy);
       if (fIdx > -1) {
         clicked = { ...fallingBricks[fIdx], isFalling: true };
@@ -292,29 +268,24 @@
               const now = Date.now();
               combo = (now - lastMatchTime < 2000) ? Math.min(combo + 1, 10) : 1;
               lastMatchTime = now;
-
               selectedBricks.forEach(s => {
                 if (s.isFalling) {
                   fallingBricks = fallingBricks.filter(b => b.id !== s.id);
                 } else if (grid[s.y] && grid[s.y][s.x] && grid[s.y][s.x].id === s.id) {
                   grid[s.y][s.x].isDestroying = true;
-                  setTimeout(() => {
-                    if (grid[s.y] && grid[s.y][s.x]) grid[s.y][s.x] = 0;
-                    applyGravity();
-                  }, 250);
+                  setTimeout(() => { if (grid[s.y] && grid[s.y][s.x]) grid[s.y][s.x] = 0; applyGravity(); }, 250);
                 }
                 createBurstEffect(s.x, s.y);
               });
-
               score += 100 * combo;
               scoreEl.innerText = score.toLocaleString();
               comboEl.innerText = `${combo} COMBO!`;
               comboEl.style.display = 'inline';
-              try { matchSfx.currentTime = 0; matchSfx.play(); } catch (e) { }
+              try { matchSfx.currentTime = 0; matchSfx.play().catch(e => { }); } catch (e) { }
               if (score - lastItemScore >= ITEM_THRESHOLD) { spawnItem(); lastItemScore = score; }
               selectedBricks = [];
             } else {
-              try { matchFailedSfx.currentTime = 0; matchFailedSfx.play(); } catch (e) { }
+              try { matchFailedSfx.currentTime = 0; matchFailedSfx.play().catch(e => { }); } catch (e) { }
               selectedBricks = [];
             }
           }
@@ -322,26 +293,15 @@
       }
     }
 
-    // [보강] 크로스 폭탄 사용 시 파티클 (보라색)
     function executeCrossBomb(cx, cy) {
-      for (let i = 0; i < COLS; i++) {
-        if (grid[cy][i]) {
-          grid[cy][i].isDestroying = true;
-          createBurstEffect(i, cy, "#a349eb");
-        }
-      }
-      for (let j = 0; j < ROWS; j++) {
-        if (grid[j][cx]) {
-          grid[j][cx].isDestroying = true;
-          createBurstEffect(cx, j, "#a349eb");
-        }
-      }
+      for (let i = 0; i < COLS; i++) { if (grid[cy][i]) { grid[cy][i].isDestroying = true; createBurstEffect(i, cy, "#a349eb"); } }
+      for (let j = 0; j < ROWS; j++) { if (grid[j][cx]) { grid[j][cx].isDestroying = true; createBurstEffect(cx, j, "#a349eb"); } }
       setTimeout(() => {
         for (let i = 0; i < COLS; i++) grid[cy][i] = 0;
         for (let j = 0; j < ROWS; j++) grid[j][cx] = 0;
         applyGravity();
       }, 300);
-      try { crossBombSfx.cloneNode().play(); } catch (e) { }
+      try { crossBombSfx.currentTime = 0; crossBombSfx.play().catch(e => { }); } catch (e) { }
     }
 
     function updateItemUI() {
@@ -358,68 +318,34 @@
           if (grid[y][x] === 0) {
             for (let k = y - 1; k >= 0; k--) {
               if (grid[k][x] !== 0 && !grid[k][x].isDestroying) {
-                grid[y][x] = grid[k][x];
-                grid[k][x] = 0;
-                moved = true;
-                break;
+                grid[y][x] = grid[k][x]; grid[k][x] = 0; moved = true; break;
               }
             }
           }
         }
       }
-      // 중력이 완전히 끝난 후 0.1초 뒤에 전체 판을 다시 확인
-      if (moved) {
-        setTimeout(globalAutoCheck, 100);
-      }
+      if (moved) setTimeout(globalAutoCheck, 100);
     }
 
     function globalAutoCheck() {
       for (let y = ROWS - 1; y >= 0; y--) for (let x = 0; x < COLS; x++) if (grid[y][x]) checkAutoMatch(x, y);
     }
 
-
     function checkAutoMatch(x, y) {
-      // 1. 현재 칸에 브릭이 없거나 이미 파괴 중이면 종료
       if (!grid[y] || !grid[y][x] || grid[y][x].isDestroying) return;
-
-      // 2. [가로 전용] 현재 칸의 오른쪽 칸(x + 1)만 확인
       const nx = x + 1;
-      const ny = y;
-
-      // 3. 오른쪽 칸이 그리드 범위 내에 있고 브릭이 존재할 때
-      if (nx < COLS && grid[ny] && grid[ny][nx] && !grid[ny][nx].isDestroying) {
-
-        // 4. 두 브릭의 합이 10인지 확인
-        if (grid[y][x].value + grid[ny][nx].value === 10) {
-
-          // [중요] 즉시 파괴 플래그를 세워 다른 로직과 충돌 방지
-          const b1 = grid[y][x];
-          const b2 = grid[ny][nx];
-          b1.isDestroying = true;
-          b2.isDestroying = true;
-          autoSuccessSfx.cloneNode().play().catch(e => { });
-
-          // 민트색 파티클 생성
-          createBurstEffect(x, y, "#00ffcc");
-          createBurstEffect(nx, ny, "#00ffcc");
-
-          // 오토콤보 및 점수 계산 (최대 5배 제한)
+      if (nx < COLS && grid[y][nx] && !grid[y][nx].isDestroying) {
+        if (grid[y][x].value + grid[y][nx].value === 10) {
+          const b1 = grid[y][x], b2 = grid[y][nx];
+          b1.isDestroying = true; b2.isDestroying = true;
+          createBurstEffect(x, y, "#00ffcc"); createBurstEffect(nx, y, "#00ffcc");
           autoCombo = Math.min(autoCombo + 1, 5);
           score += 50 * autoCombo;
-
-          // 아이템 생성 기준점 동기화
-          if (score - lastItemScore >= ITEM_THRESHOLD) {
-            spawnItem();
-            lastItemScore = score;
-          }
-
           scoreEl.innerText = score.toLocaleString();
-          try { matchSfx.cloneNode().play(); } catch (e) { }
-
-          // 300ms 뒤에 실제 데이터 삭제 및 중력 적용
+          try { autoSuccessSfx.currentTime = 0; autoSuccessSfx.play().catch(e => { }); } catch (e) { }
           setTimeout(() => {
             if (grid[y] && grid[y][x] === b1) grid[y][x] = 0;
-            if (grid[ny] && grid[ny][nx] === b2) grid[ny][nx] = 0;
+            if (grid[y] && grid[y][nx] === b2) grid[y][nx] = 0;
             applyGravity();
           }, 300);
         }
@@ -432,119 +358,52 @@
 
     function update(currentTime) {
       if (!gameActive || isPaused) return;
-
       try {
         const dt = currentTime - (lastTime || currentTime);
         lastTime = currentTime;
-
         let config = STAGES.find(s => score < s.score) || STAGES[STAGES.length - 1];
         spawnCounter += dt;
-        if (spawnCounter > config.interval) {
-          spawnBricks(config.count);
-          spawnCounter = 0;
-        }
-
+        if (spawnCounter > config.interval) { spawnBricks(config.count); spawnCounter = 0; }
         for (let i = fallingBricks.length - 1; i >= 0; i--) {
           const b = fallingBricks[i];
           if (!b) continue;
-
           b.vy = Math.min(TERMINAL_VELOCITY, b.vy + config.gravity * dt);
           b.y += b.vy * dt;
-
           const gy = Math.floor(b.y + 1);
-
-          // 안착 판정
           if (gy >= ROWS || (gy >= 0 && grid[gy] && grid[gy][b.x] !== 0)) {
             let fy = gy - 1;
-
-            // [핵심 보정] 빈 칸을 찾을 때까지 위로 탐색 (숫자 바뀜 원천 차단)
-            while (fy >= 0 && grid[fy] && grid[fy][b.x] !== 0) {
-              fy--;
-            }
-
+            while (fy >= 0 && grid[fy] && grid[fy][b.x] !== 0) fy--;
             if (fy < 2) { gameOver(); return; }
-
-            // 데이터 기록
             if (fy >= 0 && grid[fy]) {
-              grid[fy][b.x] = {
-                value: b.value,
-                id: b.id,
-                isDestroying: false
-              };
+              grid[fy][b.x] = { value: b.value, id: b.id, isDestroying: false };
               fallingBricks.splice(i, 1);
-
-              // 안착 후 로직은 프레임 안정화를 위해 미세 딜레이
-              setTimeout(() => {
-                globalAutoCheck();
-                applyGravity();
-              }, 30);
+              setTimeout(() => { globalAutoCheck(); applyGravity(); }, 30);
             }
           }
         }
-
-        fieldItems.forEach((it, i) => {
-          it.x += it.vx;
-          it.angle += 0.05;
-          if (it.x > canvas.width + 50) fieldItems.splice(i, 1);
-        });
-
+        fieldItems.forEach((it, i) => { it.x += it.vx; it.angle += 0.05; if (it.x > canvas.width + 50) fieldItems.splice(i, 1); });
         draw();
         requestAnimationFrame(update);
-      } catch (error) {
-        requestAnimationFrame(update);
-      }
+      } catch (error) { requestAnimationFrame(update); }
     }
 
-
     function draw() {
-      // 1. 화면 초기화
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.globalAlpha = 1.0;
-
-      // 2. 배경 그리드
       ctx.strokeStyle = "#25374a"; ctx.lineWidth = 1;
       for (let i = 0; i <= COLS; i++) { ctx.beginPath(); ctx.moveTo(i * BLOCK_SIZE, 0); ctx.lineTo(i * BLOCK_SIZE, canvas.height); ctx.stroke(); }
       for (let j = 0; j <= ROWS; j++) { ctx.beginPath(); ctx.moveTo(0, j * BLOCK_SIZE); ctx.lineTo(canvas.width, j * BLOCK_SIZE); ctx.stroke(); }
-
-      // 3. 상단 위험 리미트 라인
       const isDanger = checkDanger();
       ctx.strokeStyle = (isDanger && Math.floor(Date.now() / 250) % 2 === 0) ? "transparent" : (isDanger ? "#ff0000" : "#ff4b2b");
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(0, 2 * BLOCK_SIZE);
-      ctx.lineTo(canvas.width, 2 * BLOCK_SIZE);
-      ctx.stroke();
-
-      // 4. 고정된 브릭들
+      ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 2 * BLOCK_SIZE); ctx.lineTo(canvas.width, 2 * BLOCK_SIZE); ctx.stroke();
       grid.forEach((row, y) => row.forEach((cell, x) => {
-        if (cell) {
-          ctx.save();
-          ctx.globalAlpha = cell.isDestroying ? 0.3 : 1.0;
-          drawBrick(x, y, cell.value);
-          ctx.restore();
-        }
+        if (cell) { ctx.save(); ctx.globalAlpha = cell.isDestroying ? 0.3 : 1.0; drawBrick(x, y, cell.value); ctx.restore(); }
       }));
-
-      // 5. 떨어지는 브릭들
-      fallingBricks.forEach(b => {
-        ctx.save();
-        ctx.globalAlpha = 1.0;
-        drawBrick(b.x, b.y, b.value);
-        ctx.restore();
-      });
-
-      // 6. 횡단하는 아이템
+      fallingBricks.forEach(b => { ctx.save(); drawBrick(b.x, b.y, b.value); ctx.restore(); });
       fieldItems.forEach(it => {
-        ctx.save();
-        ctx.translate(it.x, it.y);
-        ctx.rotate(it.angle);
-        ctx.shadowBlur = 15; ctx.shadowColor = "#a349eb";
+        ctx.save(); ctx.translate(it.x, it.y); ctx.rotate(it.angle); ctx.shadowBlur = 15; ctx.shadowColor = "#a349eb";
         ctx.beginPath(); ctx.arc(0, 0, it.radius, 0, Math.PI * 2); ctx.fillStyle = "#a349eb"; ctx.fill();
-        ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke();
-        ctx.restore();
+        ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
       });
-
-      // 7. [실시간 추적 테두리] - 아이폰 최적화 완료
       selectedBricks = selectedBricks.filter(s => {
         let curX = -1, curY = -1;
         if (s.isFalling) {
@@ -552,174 +411,67 @@
           if (b) { curX = b.x; curY = b.y; }
         } else {
           loop: for (let gy = 0; gy < ROWS; gy++) {
-            if (!grid[gy]) continue;
             for (let gx = 0; gx < COLS; gx++) {
-              const cell = grid[gy][gx];
-              if (cell && cell.id === s.id && !cell.isDestroying) {
-                curX = gx; curY = gy; break loop;
-              }
+              if (grid[gy][gx] && grid[gy][gx].id === s.id && !grid[gy][gx].isDestroying) { curX = gx; curY = gy; break loop; }
             }
           }
         }
         if (curX !== -1) {
-          ctx.save();
-          ctx.strokeStyle = "white"; ctx.lineWidth = 4;
-          ctx.strokeRect(curX * BLOCK_SIZE + 5, curY * BLOCK_SIZE + 5, BLOCK_SIZE - 10, BLOCK_SIZE - 10);
-          ctx.restore();
-          s.x = curX; s.y = Math.round(curY);
-          return true;
+          ctx.save(); ctx.strokeStyle = "white"; ctx.lineWidth = 4;
+          ctx.strokeRect(curX * BLOCK_SIZE + 5, curY * BLOCK_SIZE + 5, BLOCK_SIZE - 10, BLOCK_SIZE - 10); ctx.restore();
+          s.x = curX; s.y = Math.round(curY); return true;
         }
         return false;
       });
-
-      // 8. [핵심 최적화] 이펙트(파티클) - filter 방식으로 교체 (렉 방지)
-      // 살아있는 파티클만 남깁니다.
       effects = effects.filter(ef => ef.life > 0);
-
       effects.forEach((ef) => {
-        ctx.save();
-        ctx.fillStyle = ef.color;
-        ctx.globalAlpha = ef.life / 20;
-        ctx.beginPath();
-        ctx.arc(ef.px, ef.py, 3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-
-        // 데이터 업데이트
-        ef.px += ef.vx;
-        ef.py += ef.vy;
-        ef.life--;
+        ctx.save(); ctx.fillStyle = ef.color; ctx.globalAlpha = ef.life / 20;
+        ctx.beginPath(); ctx.arc(ef.px, ef.py, 3, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        ef.px += ef.vx; ef.py += ef.vy; ef.life--;
       });
     }
 
     function drawBrick(x, y, val) {
-      const colors = {
-        1: "#FFFFFF", 2: "#FF0000", 3: "#FF7F00", 4: "#FFFF00",
-        5: "#00FF00", 6: "#0000FF", 7: "#4B0082", 8: "#8B00FF",
-        9: "#000000" // 블랙 복구!
-      };
+      const colors = { 1: "#FFFFFF", 2: "#FF0000", 3: "#FF7F00", 4: "#FFFF00", 5: "#00FF00", 6: "#0000FF", 7: "#4B0082", 8: "#8B00FF", 9: "#000000" };
       const px = x * BLOCK_SIZE, py = y * BLOCK_SIZE;
-      ctx.fillStyle = colors[val] || "#CCC";
-      ctx.fillRect(px + 4, py + 4, BLOCK_SIZE - 8, BLOCK_SIZE - 8);
-
-      // 글자색 반전 처리 (흰색 글씨가 잘 보이게)
+      ctx.fillStyle = colors[val] || "#CCC"; ctx.fillRect(px + 4, py + 4, BLOCK_SIZE - 8, BLOCK_SIZE - 8);
       ctx.fillStyle = [1, 3, 4, 5].includes(val) ? "#000" : "#FFF";
-      ctx.font = `bold ${BLOCK_SIZE * 0.5}px Arial`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
+      ctx.font = `bold ${BLOCK_SIZE * 0.5}px Arial`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(val, px + BLOCK_SIZE / 2, py + BLOCK_SIZE / 2);
     }
 
     function startGame() {
-
-      // [핵심 추가] 게임 시작 시 붉은 필터와 블러를 즉시 제거
-      canvas.style.filter = "none";
-      canvas.style.transform = "scale(1)";
-      canvas.style.transition = "none"; // 복구 시엔 애니메이션 없이 즉시!
-
-      // 1. 모든 상태 즉시 초기화
-      gameActive = true;
-      isPaused = false;
-      score = 0;
-      combo = 0;
-      autoCombo = 0;
-      lastMatchTime = 0;
-      lastItemScore = 0; // 아이템 기준점 리셋
-      inventory.crossBomb = 0;
-
+      canvas.style.filter = "none"; canvas.style.transform = "scale(1)";
+      gameActive = true; isPaused = false; score = 0; combo = 0; autoCombo = 0; lastMatchTime = 0; lastItemScore = 0; inventory.crossBomb = 0;
       grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
-      fallingBricks = [];
-      selectedBricks = [];
-      effects = [];
-      fieldItems = []; // 필드에 떠다니는 아이템도 삭제
-
-      // 2. UI 즉시 반영
-      scoreEl.innerText = "0";
-      comboEl.style.display = 'none';
-      updateItemUI();
-
-      // 3. 음악 제어
-      try {
-        // 엔딩 비장한 곡 정지
-        endSfx.pause();
-        endSfx.currentTime = 0;
-
-        // 리트라이 화면 효과음 정지
-        gameOverSfx.pause();
-        gameOverSfx.currentTime = 0;
-
-        // 인트로 곡도 혹시 모르니 정지
-        introSfx.pause();
-        introSfx.currentTime = 0;
-
-        // 배경음악은 처음부터 다시 신나게 재생
-        bgm.currentTime = 0;
-        bgm.play().catch(e => { });
-      } catch (e) { }
-
+      fallingBricks = []; selectedBricks = []; effects = []; fieldItems = [];
+      scoreEl.innerText = "0"; comboEl.style.display = 'none'; updateItemUI();
+      try { endSfx.pause(); endSfx.currentTime = 0; gameOverSfx.pause(); gameOverSfx.currentTime = 0; introSfx.pause(); introSfx.currentTime = 0; bgm.currentTime = 0; bgm.play().catch(e => { }); } catch (e) { }
       document.getElementById('start-screen').classList.add('hidden');
       document.getElementById('gameover-screen').classList.add('hidden');
-
-      lastTime = performance.now();
-      requestAnimationFrame(update);
+      lastTime = performance.now(); requestAnimationFrame(update);
     }
 
     function gameOver() {
-      // 1. [즉시 중지] 모든 클릭과 브릭 생성을 멈춥니다.
-      gameActive = false;
-      bgm.pause(); // 배경음악 정지
-
-      // 2. [연출 추가] 캔버스에 붉은색 필터와 블러 효과 적용
-      // 0.5초 동안 서서히 붉고 뿌옇게 변하도록 스타일을 줍니다.
+      gameActive = false; bgm.pause();
       canvas.style.transition = "filter 0.5s ease, transform 0.5s ease";
       canvas.style.filter = "sepia(100%) saturate(300%) hue-rotate(-50deg) blur(5px)";
-      canvas.style.transform = "scale(0.98)"; // 아주 살짝 작아지는 효과로 충격 전달
-
-      // 2. [비장한 엔딩] endSfx 재생
-      try {
-        endSfx.play().catch(e => { });
-      } catch (e) { }
-
-      // 3. [연출 대기] 음악을 충분히 들려준 후(1.5초) 리트라이 화면을 띄웁니다.
+      canvas.style.transform = "scale(0.98)";
+      try { endSfx.play().catch(e => { }); } catch (e) { }
       setTimeout(() => {
-        // 하이스코어 정산 등이 있다면 여기서 수행
         finalScoreEl.innerText = "SCORE: " + score.toLocaleString();
-
-        // 리트라이 화면 표시
         document.getElementById('gameover-screen').classList.remove('hidden');
-
-        // 4. [보너스] 화면이 뜰 때 칭 하는 효과음(gameOverSfx)까지 들려주면 완벽!
-        try {
-          gameOverSfx.play().catch(e => { });
-        } catch (e) { }
-      }, 2000); // 1.5초 대기 (음악 길이에 따라 1000~2000 사이로 조절하세요)
+        try { gameOverSfx.play().catch(e => { }); } catch (e) { }
+      }, 2000);
     }
+
     function showStartScreen() {
-      // 1. [기존 기능] 화면 전환 (이건 절대 빠지면 안 되죠!)
       document.getElementById('gameover-screen').classList.add('hidden');
       document.getElementById('start-screen').classList.remove('hidden');
-
-      // 2. [추가 연출] 붉게 변했던 화면을 다시 깨끗하게 (복구)
-      canvas.style.filter = "none";
-      canvas.style.transform = "scale(1)";
-      canvas.style.transition = "none"; // 메인으로 올 때는 즉시 복구
-
-      // 3. [음악 로직] 죽었던 인트로 음악을 살리고 엔딩곡을 끔
-      try {
-        // 엔딩 관련 소리들은 정지
-        endSfx.pause();
-        endSfx.currentTime = 0;
-        gameOverSfx.pause();
-        gameOverSfx.currentTime = 0;
-
-        // 인트로 음악 다시 시작 (메인 화면의 상징이니까요!)
-        introSfx.currentTime = 0;
-        introSfx.play().catch(e => { });
-      } catch (e) { }
-
-      // 4. [중요] 게임 데이터를 여기서 초기화하지는 않습니다. 
-      // 데이터 초기화는 실제 'START GAME' 버튼을 눌러 startGame()이 실행될 때 합니다.
+      canvas.style.filter = "none"; canvas.style.transform = "scale(1)";
+      try { endSfx.pause(); endSfx.currentTime = 0; gameOverSfx.pause(); gameOverSfx.currentTime = 0; introSfx.currentTime = 0; introSfx.play().catch(e => { }); } catch (e) { }
     }
+
     function togglePause() { isPaused = !isPaused; if (!isPaused) { lastTime = performance.now(); requestAnimationFrame(update); } }
     function checkDanger() { return grid[3] && grid[3].some(c => c !== 0); }
 
