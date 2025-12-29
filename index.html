@@ -157,32 +157,67 @@
 
     const introSfx = new Audio('sfx/intro.wav');
     const bgm = new Audio('sfx/bgm.wav');
-    const matchSfx = new Audio('sfx/match.wav');
-    const endSfx = new Audio('sfx/endSfx .wav');
-    const gameOverSfx = new Audio('sfx/gameover.wav');
+    const matchSfx = new Audio('sfx/matchSuccess.wav');
+    const endSfx = new Audio('sfx/endSfx.wav');
+    const gameOverSfx = new Audio('sfx/gameOver.wav');
+    const selBrickSfx = new Audio('sfx/brickSelect.wav');
+    const autoSuccessSfx = new Audio('sfx/autoSuccess.wav');
+    const matchFailedSfx = new Audio('sfx/matchFailed.wav');
+    const selCrossBombSfx = new Audio('sfx/crossBombSelect.wav');
+    const crossBombSfx = new Audio('sfx/crossBomb.wav');
     introSfx.loop = true; bgm.loop = true;
 
     // --- [2] 초기화 ---
     function init() {
       resize();
-      const playIntroOnce = () => { introSfx.play().catch(e => { }); window.removeEventListener('mousedown', playIntroOnce); window.removeEventListener('touchstart', playIntroOnce); };
+
+      // 1. [음악/연출] 첫 클릭 시 인트로 재생 (한 번만 실행)
+      const playIntroOnce = () => {
+        introSfx.play().catch(e => { });
+        canvas.style.filter = "none";
+        canvas.style.transform = "scale(1)";
+        window.removeEventListener('mousedown', playIntroOnce);
+        window.removeEventListener('touchstart', playIntroOnce);
+      };
       window.addEventListener('mousedown', playIntroOnce);
       window.addEventListener('touchstart', playIntroOnce);
       window.addEventListener('resize', resize);
 
-      // 아이템 버튼
+      // 2. [아이템 버튼] 상단 보라색 폭탄 버튼 클릭 연결
       const bombBtn = document.getElementById('bombBtn');
-      bombBtn.addEventListener('mousedown', (e) => {
-        e.stopPropagation();
-        if (inventory.crossBomb > 0) {
-          isItemMode = !isItemMode;
-          updateItemUI();
-        }
-      });
+      if (bombBtn) {
+        bombBtn.addEventListener('mousedown', (e) => {
+          e.stopPropagation();
+          if (inventory.crossBomb > 0) {
+            isItemMode = !isItemMode;
 
+            // 모드가 켜질 때만 "칭~" 하는 선택음 재생
+            if (isItemMode) {
+              try {
+                selCrossBombSfx.currentTime = 0;
+                selCrossBombSfx.play().catch(e => { });
+              } catch (e) { }
+            }
+
+            updateItemUI();
+          }
+        });
+      }
+
+      // 3. [핵심: 버튼 연결] 메인 화면의 START 버튼 클릭 연결
+      const startBtn = document.getElementById('realStartBtn');
+      if (startBtn) {
+        startBtn.onclick = startGame; // 여기서 startGame이 연결되어야 합니다!
+      }
+
+      // 4. [입력 핸들러] 캔버스 내 게임 플레이 클릭 연결
       canvas.addEventListener('mousedown', handleInput);
-      canvas.addEventListener('touchstart', (e) => { e.preventDefault(); handleInput(e.touches[0]); }, { passive: false });
-      document.getElementById('realStartBtn').onclick = startGame;
+      canvas.addEventListener('touchstart', (e) => {
+        if (gameActive) e.preventDefault();
+        handleInput(e.touches[0]);
+      }, { passive: false });
+
+      // 5. [그리드 초기화]
       grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
     }
 
@@ -246,21 +281,29 @@
       let clicked = null;
       const fIdx = fallingBricks.findIndex(b => b.x === cx && Math.round(b.y) === cy);
       if (fIdx > -1) clicked = { ...fallingBricks[fIdx], isFalling: true };
-      else if (grid[cy][cx]) clicked = { x: cx, y: cy, value: grid[cy][cx].value, isFalling: false, id: `g-${cx}-${cy}` };
+      else if (grid[cy][cx]) clicked = {
+        x: cx,
+        y: cy,
+        value: grid[cy][cx].value,
+        isFalling: false,
+        id: grid[cy][cx].id // <--- [수정] 그리드에 들어있는 "진짜 ID"를 가져와야 합니다!
+      };
 
       if (clicked) {
         const idx = selectedBricks.findIndex(s => s.id === clicked.id);
         if (idx > -1) {
-          selectedBricks.splice(idx, 1); // 이미 선택된 것 누르면 해제
+          selectedBricks.splice(idx, 1);
         } else {
           selectedBricks.push(clicked);
+          // [추가] 브릭을 선택할 때마다 나는 소리 (선택 피드백)
+          try { selBrickSfx.cloneNode().play().catch(e => { }); } catch (e) { }
 
           if (selectedBricks.length === 2) {
             const s1 = selectedBricks[0], s2 = selectedBricks[1];
 
             if (s1.value + s2.value === 10) {
+              // --- 성공 로직 ---
               const now = Date.now();
-              // 콤보 유효시간 2초로 단축 및 최대 10콤보 캡(Cap) 설정
               combo = (now - lastMatchTime < 2000) ? Math.min(combo + 1, 10) : 1;
               lastMatchTime = now;
 
@@ -269,29 +312,33 @@
                   fallingBricks = fallingBricks.filter(b => b.id !== s.id);
                 } else if (grid[s.y][s.x]) {
                   grid[s.y][s.x].isDestroying = true;
-                  setTimeout(() => {
-                    grid[s.y][s.x] = 0;
-                    applyGravity();
-                  }, 300);
+                  setTimeout(() => { grid[s.y][s.x] = 0; applyGravity(); }, 300);
                 }
                 createBurstEffect(s.x, s.y);
               });
 
-              // 점수 부여 및 UI 업데이트
               score += 100 * combo;
               scoreEl.innerText = score.toLocaleString();
               comboEl.innerText = `${combo} COMBO!`;
               comboEl.style.display = 'inline';
               try { matchSfx.cloneNode().play(); } catch (e) { }
 
-              // [밸런스 핵심] 아이템 생성 기준점 업데이트 (중복 생성 방지)
               if (score - lastItemScore >= ITEM_THRESHOLD) {
                 spawnItem();
-                // 현재 점수를 기준점으로 삼아 다음 1만점까지 대기하게 함
                 lastItemScore = score;
               }
+              selectedBricks = []; // 성공 시 초기화
+            } else {
+              // --- 실패 로직 (여기가 중요!) ---
+              try {
+                // BGM에 묻히지 않도록 cloneNode()를 사용하고, 볼륨을 체크해보세요.
+                const failSound = matchFailedSfx.cloneNode();
+                failSound.volume = 1.0; // 소리가 작다면 강제로 키움
+                failSound.play().catch(e => { });
+              } catch (e) { }
+
+              selectedBricks = []; // 실패 시에도 초기화
             }
-            selectedBricks = []; // 매칭 여부와 상관없이 두 개 선택 시 초기화
           }
         }
       }
@@ -316,7 +363,7 @@
         for (let j = 0; j < ROWS; j++) grid[j][cx] = 0;
         applyGravity();
       }, 300);
-      try { matchSfx.cloneNode().play(); } catch (e) { }
+      try { crossBombSfx.cloneNode().play(); } catch (e) { }
     }
 
     function updateItemUI() {
@@ -372,6 +419,7 @@
           const b2 = grid[ny][nx];
           b1.isDestroying = true;
           b2.isDestroying = true;
+          autoSuccessSfx.cloneNode().play().catch(e => { });
 
           // 민트색 파티클 생성
           createBurstEffect(x, y, "#00ffcc");
@@ -420,7 +468,12 @@
         if (gy >= ROWS || (gy >= 0 && grid[gy][b.x] !== 0)) {
           let fy = gy - 1;
           if (fy < 2) { gameOver(); return; }
-          grid[fy][b.x] = { value: b.value, isDestroying: false };
+          // [수 핵심] 안착할 때 b.id를 꼭 챙겨 넣습니다.
+          grid[fy][b.x] = {
+            value: b.value,
+            id: b.id,           // <-- 여기!! 이 녀석이 있어야 추적이 가능합니다.
+            isDestroying: false
+          };
           fallingBricks.splice(i, 1);
           globalAutoCheck();
           applyGravity();
@@ -432,17 +485,18 @@
       requestAnimationFrame(update);
     }
 
+
     function draw() {
       // 1. 화면 초기화
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.globalAlpha = 1.0; // 투명도 초기화 (뿌연 현상 방지)
+      ctx.globalAlpha = 1.0;
 
       // 2. 배경 그리드
       ctx.strokeStyle = "#25374a"; ctx.lineWidth = 1;
       for (let i = 0; i <= COLS; i++) { ctx.beginPath(); ctx.moveTo(i * BLOCK_SIZE, 0); ctx.lineTo(i * BLOCK_SIZE, canvas.height); ctx.stroke(); }
       for (let j = 0; j <= ROWS; j++) { ctx.beginPath(); ctx.moveTo(0, j * BLOCK_SIZE); ctx.lineTo(canvas.width, j * BLOCK_SIZE); ctx.stroke(); }
 
-      // 3. 상단 위험 리미트 라인 (복구 완료)
+      // 3. 상단 위험 리미트 라인
       const isDanger = checkDanger();
       ctx.strokeStyle = (isDanger && Math.floor(Date.now() / 250) % 2 === 0) ? "transparent" : (isDanger ? "#ff0000" : "#ff4b2b");
       ctx.lineWidth = 3;
@@ -451,12 +505,11 @@
       ctx.lineTo(canvas.width, 2 * BLOCK_SIZE);
       ctx.stroke();
 
-      // 4. 고정된 브릭들 (투명도 버그 수정)
+      // 4. 고정된 브릭들
       grid.forEach((row, y) => row.forEach((cell, x) => {
         if (cell) {
           ctx.save();
-          if (cell.isDestroying) ctx.globalAlpha = 0.3;
-          else ctx.globalAlpha = 1.0;
+          ctx.globalAlpha = cell.isDestroying ? 0.3 : 1.0;
           drawBrick(x, y, cell.value);
           ctx.restore();
         }
@@ -481,13 +534,40 @@
         ctx.restore();
       });
 
-      // 7. 선택된 브릭 테두리
-      selectedBricks.forEach(s => {
-        ctx.save();
-        ctx.strokeStyle = "white"; ctx.lineWidth = 4;
-        ctx.strokeRect(s.x * BLOCK_SIZE + 5, s.y * BLOCK_SIZE + 5, BLOCK_SIZE - 10, BLOCK_SIZE - 10);
-        ctx.restore();
-      });
+      // 7. [실시간 추적 테두리] - 낙하 시 이동 및 오토매치 시 자동 제거
+      for (let i = selectedBricks.length - 1; i >= 0; i--) {
+        const s = selectedBricks[i];
+        let curX = -1, curY = -1;
+
+        if (s.isFalling) {
+          const b = fallingBricks.find(fb => fb.id === s.id);
+          if (b) { curX = b.x; curY = b.y; }
+        } else {
+          let found = false;
+          for (let gy = 0; gy < ROWS; gy++) {
+            for (let gx = 0; gx < COLS; gx++) {
+              if (grid[gy][gx] && grid[gy][gx].id === s.id && !grid[gy][gx].isDestroying) {
+                curX = gx; curY = gy;
+                found = true; break;
+              }
+            }
+            if (found) break;
+          }
+        }
+
+        if (curX !== -1) {
+          ctx.save();
+          ctx.strokeStyle = "white"; ctx.lineWidth = 4;
+          ctx.strokeRect(curX * BLOCK_SIZE + 5, curY * BLOCK_SIZE + 5, BLOCK_SIZE - 10, BLOCK_SIZE - 10);
+          ctx.restore();
+          // 매칭 계산용 좌표 동기화
+          s.x = curX;
+          s.y = Math.round(curY);
+        } else {
+          // 브릭이 없어졌으면 선택 해제
+          selectedBricks.splice(i, 1);
+        }
+      }
 
       // 8. 이펙트(파티클)
       effects.forEach((ef, i) => {
@@ -519,6 +599,12 @@
     }
 
     function startGame() {
+
+      // [핵심 추가] 게임 시작 시 붉은 필터와 블러를 즉시 제거
+      canvas.style.filter = "none";
+      canvas.style.transform = "scale(1)";
+      canvas.style.transition = "none"; // 복구 시엔 애니메이션 없이 즉시!
+
       // 1. 모든 상태 즉시 초기화
       gameActive = true;
       isPaused = false;
@@ -542,8 +628,19 @@
 
       // 3. 음악 제어
       try {
+        // 엔딩 비장한 곡 정지
+        endSfx.pause();
+        endSfx.currentTime = 0;
+
+        // 리트라이 화면 효과음 정지
+        gameOverSfx.pause();
+        gameOverSfx.currentTime = 0;
+
+        // 인트로 곡도 혹시 모르니 정지
         introSfx.pause();
         introSfx.currentTime = 0;
+
+        // 배경음악은 처음부터 다시 신나게 재생
         bgm.currentTime = 0;
         bgm.play().catch(e => { });
       } catch (e) { }
@@ -555,8 +652,62 @@
       requestAnimationFrame(update);
     }
 
-    function gameOver() { gameActive = false; bgm.pause(); endSfx.play().catch(e => { }); finalScoreEl.innerText = "SCORE: " + score.toLocaleString(); document.getElementById('gameover-screen').classList.remove('hidden'); }
-    function showStartScreen() { document.getElementById('gameover-screen').classList.add('hidden'); document.getElementById('start-screen').classList.remove('hidden'); }
+    function gameOver() {
+      // 1. [즉시 중지] 모든 클릭과 브릭 생성을 멈춥니다.
+      gameActive = false;
+      bgm.pause(); // 배경음악 정지
+
+      // 2. [연출 추가] 캔버스에 붉은색 필터와 블러 효과 적용
+      // 0.5초 동안 서서히 붉고 뿌옇게 변하도록 스타일을 줍니다.
+      canvas.style.transition = "filter 0.5s ease, transform 0.5s ease";
+      canvas.style.filter = "sepia(100%) saturate(300%) hue-rotate(-50deg) blur(5px)";
+      canvas.style.transform = "scale(0.98)"; // 아주 살짝 작아지는 효과로 충격 전달
+
+      // 2. [비장한 엔딩] endSfx 재생
+      try {
+        endSfx.play().catch(e => { });
+      } catch (e) { }
+
+      // 3. [연출 대기] 음악을 충분히 들려준 후(1.5초) 리트라이 화면을 띄웁니다.
+      setTimeout(() => {
+        // 하이스코어 정산 등이 있다면 여기서 수행
+        finalScoreEl.innerText = "SCORE: " + score.toLocaleString();
+
+        // 리트라이 화면 표시
+        document.getElementById('gameover-screen').classList.remove('hidden');
+
+        // 4. [보너스] 화면이 뜰 때 칭 하는 효과음(gameOverSfx)까지 들려주면 완벽!
+        try {
+          gameOverSfx.play().catch(e => { });
+        } catch (e) { }
+      }, 2000); // 1.5초 대기 (음악 길이에 따라 1000~2000 사이로 조절하세요)
+    }
+    function showStartScreen() {
+      // 1. [기존 기능] 화면 전환 (이건 절대 빠지면 안 되죠!)
+      document.getElementById('gameover-screen').classList.add('hidden');
+      document.getElementById('start-screen').classList.remove('hidden');
+
+      // 2. [추가 연출] 붉게 변했던 화면을 다시 깨끗하게 (복구)
+      canvas.style.filter = "none";
+      canvas.style.transform = "scale(1)";
+      canvas.style.transition = "none"; // 메인으로 올 때는 즉시 복구
+
+      // 3. [음악 로직] 죽었던 인트로 음악을 살리고 엔딩곡을 끔
+      try {
+        // 엔딩 관련 소리들은 정지
+        endSfx.pause();
+        endSfx.currentTime = 0;
+        gameOverSfx.pause();
+        gameOverSfx.currentTime = 0;
+
+        // 인트로 음악 다시 시작 (메인 화면의 상징이니까요!)
+        introSfx.currentTime = 0;
+        introSfx.play().catch(e => { });
+      } catch (e) { }
+
+      // 4. [중요] 게임 데이터를 여기서 초기화하지는 않습니다. 
+      // 데이터 초기화는 실제 'START GAME' 버튼을 눌러 startGame()이 실행될 때 합니다.
+    }
     function togglePause() { isPaused = !isPaused; if (!isPaused) { lastTime = performance.now(); requestAnimationFrame(update); } }
     function checkDanger() { return grid[3] && grid[3].some(c => c !== 0); }
 
