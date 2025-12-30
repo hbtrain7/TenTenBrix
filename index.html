@@ -138,6 +138,10 @@
     const finalScoreEl = document.getElementById('finalScoreDisplay');
 
     const COLS = 7, ROWS = 11;
+
+    const SPAWN_BALANCE_PROB = 0.5;    // 보정 확률 (0.5 = 50% 확률로 필요한 숫자 생성)
+    const DANGER_THRESHOLD = 6;        // 보정 발동 조건 (한 숫자가 6개 이상 쌓였을 때)
+
     let BLOCK_SIZE, grid = [], score = 0, combo = 0, autoCombo = 0, lastMatchTime = 0;
     let gameActive = false, isPaused = false, fallingBricks = [], lastTime = 0, spawnCounter = 0, selectedBricks = [];
     let effects = [];
@@ -146,6 +150,7 @@
     let fieldItems = [];
     let isItemMode = false;
     let lastItemScore = 0;
+    let globalBrickCounter = 0; // 브릭마다 번호를 하나씩 붙여줄 카운터
     const ITEM_THRESHOLD = 10000;
 
     const TERMINAL_VELOCITY = 0.025;
@@ -210,11 +215,55 @@
     }
 
     function spawnBricks(count) {
+      // 1. 현재 화면의 숫자 분포 파악 (그리드 + 낙하 중인 브릭)
+      const counts = {};
+
+      // 그리드에 고정된 브릭 스캔
+      for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+          const cell = grid[y][x];
+          if (cell && cell !== 0 && !cell.isDestroying) {
+            counts[cell.value] = (counts[cell.value] || 0) + 1;
+          }
+        }
+      }
+      // 현재 떨어지고 있는 브릭 스캔
+      fallingBricks.forEach(b => {
+        counts[b.value] = (counts[b.value] || 0) + 1;
+      });
+
+      // 2. 위험 숫자(DANGER_THRESHOLD 이상)가 있는지 확인하고 짝꿍 숫자 결정
+      let targetPartner = null;
+      for (let val in counts) {
+        if (counts[val] >= DANGER_THRESHOLD) {
+          targetPartner = 10 - parseInt(val);
+          break; // 가장 많이 쌓인 것 하나만 타겟팅
+        }
+      }
+
+      // 3. 브릭 생성 루프
       for (let i = 0; i < count; i++) {
         const x = Math.floor(Math.random() * COLS);
         if (grid[0][x] !== 0) { gameOver(); return; }
-        const val = Math.floor(Math.random() * 9) + 1;
-        fallingBricks.push({ id: Date.now() + Math.random(), x: x, y: -1, value: val, vy: 0 });
+
+        let val;
+        // 설정된 확률(SPAWN_BALANCE_PROB)에 따라 보정값 적용
+        if (targetPartner && Math.random() < SPAWN_BALANCE_PROB) {
+          val = targetPartner;
+        } else {
+          val = Math.floor(Math.random() * 9) + 1;
+        }
+
+        // 고유 ID 부여 (숫자가 같아도 서로 다른 브릭임을 증명)
+        const uniqueId = `brick-${Date.now()}-${globalBrickCounter++}`;
+
+        fallingBricks.push({
+          id: uniqueId,
+          x: x,
+          y: -1,
+          value: val,
+          vy: 0
+        });
       }
     }
 
