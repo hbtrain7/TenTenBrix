@@ -295,7 +295,6 @@
       const cx = Math.floor(sx / BLOCK_SIZE);
       const cy = Math.floor(sy / BLOCK_SIZE);
 
-      // 캔버스 범위 밖 예외 처리
       if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) {
         selectedBricks = [];
         return;
@@ -315,13 +314,12 @@
       if (grid[cy] && grid[cy][cx] && grid[cy][cx].isDestroying) return;
 
       let clicked = null;
-      // 낙하 브릭 우선 검색 (반올림 좌표 사용)
-      const fIdx = fallingBricks.findIndex(b => b.x === cx && Math.round(b.y) === cy);
+      // [보정] 낙하 브릭 검색: Math.round 대신 절대값 차이(0.7)를 사용하여 인접 브릭 오인 클릭 방지
+      const fIdx = fallingBricks.findIndex(b => b.x === cx && Math.abs(b.y - cy) < 0.7);
 
       if (fIdx > -1) {
         clicked = { ...fallingBricks[fIdx], isFalling: true };
       } else if (grid[cy] && grid[cy][cx] && grid[cy][cx] !== 0) {
-        // 고정된 브릭 검색
         clicked = {
           x: cx,
           y: cy,
@@ -352,39 +350,35 @@
               combo = (now - lastMatchTime < 2000) ? Math.min(combo + 1, 10) : 1;
               lastMatchTime = now;
 
-              // [핵심 보정] 선택된 ID 신분증 번호만 따로 리스트업
+              // 제거할 ID 리스트 박제
               const targetIds = selectedBricks.map(s => s.id);
-              const targetCoords = selectedBricks.map(s => ({ x: s.x, y: s.y }));
-              selectedBricks = []; // 즉시 비워서 중복 클릭 차단
+              selectedBricks = []; // 즉시 비워서 중복 처리 방지
 
-              // 1. 낙하 브릭 처리: 좌표가 겹쳐도 내 리스트(targetIds)에 없는 ID는 절대 생존
+              // [정밀 타격 1] 낙하 브릭 처리: 내 리스트에 없는 ID는 절대 생존
               fallingBricks = fallingBricks.filter(b => !targetIds.includes(b.id));
 
-              // 2. 그리드 브릭 처리: 정밀 타격
-              targetCoords.forEach((pos, i) => {
-                const currentId = targetIds[i];
-
-                // 좌표 이탈에 대비해 전체 그리드에서 해당 ID를 가진 칸만 파괴
+              // [정밀 타격 2] 그리드 브릭 처리
+              targetIds.forEach((tId) => {
+                // 좌표에 의존하지 않고 그리드 전체에서 해당 ID만 찾아 제거
                 loop: for (let gy = 0; gy < ROWS; gy++) {
                   for (let gx = 0; gx < COLS; gx++) {
-                    if (grid[gy][gx] && grid[gy][gx].id === currentId) {
+                    if (grid[gy][gx] && grid[gy][gx].id === tId) {
                       grid[gy][gx].isDestroying = true;
+                      const finalGy = gy, finalGx = gx, finalId = tId;
 
                       setTimeout(() => {
-                        // 삭제 시점에 다시 한번 ID 확인 (이중 잠금)
-                        if (grid[gy] && grid[gy][gx] && grid[gy][gx].id === currentId) {
-                          grid[gy][gx] = 0;
+                        if (grid[finalGy] && grid[finalGy][finalGx] && grid[finalGy][finalGx].id === finalId) {
+                          grid[finalGy][finalGx] = 0;
                           applyGravity();
                         }
                       }, 250);
+                      createBurstEffect(gx, gy);
                       break loop;
                     }
                   }
                 }
-                createBurstEffect(pos.x, pos.y);
               });
 
-              // 점수 반영
               score += 100 * combo;
               scoreEl.innerText = score.toLocaleString();
               comboEl.innerText = `${combo} COMBO!`;
@@ -400,7 +394,6 @@
                 lastItemScore = score;
               }
             } else {
-              // --- 매칭 실패 ---
               try {
                 matchFailedSfx.currentTime = 0;
                 matchFailedSfx.play().catch(e => { });
