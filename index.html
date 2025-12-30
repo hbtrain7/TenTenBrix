@@ -232,14 +232,14 @@
       const sx = clientX - rect.left;
       const sy = clientY - rect.top;
 
-      // 1. [아이템 수집] 필드에 떠다니는 아이템 터치 시 최우선 처리
+      // 1. [아이템 수집] 필드 아이템 최우선 처리
       for (let i = fieldItems.length - 1; i >= 0; i--) {
         const it = fieldItems[i];
         if (Math.hypot(it.x - sx, it.y - sy) < it.radius + 20) {
           inventory.crossBomb++;
           fieldItems.splice(i, 1);
           updateItemUI();
-          return; // 아이템을 먹었으면 다른 로직은 실행하지 않음
+          return;
         }
       }
 
@@ -252,22 +252,21 @@
         return;
       }
 
-      // 2. [아이템 사용 실행] 크로스밤 모드가 활성화된 경우
+      // 2. [아이템 사용 실행] 크로스밤 모드 활성화 시
       if (isItemMode && inventory.crossBomb > 0) {
-        executeCrossBomb(cx, cy); // 십자 폭발 실행
+        executeCrossBomb(cx, cy);
         isItemMode = false;
         inventory.crossBomb--;
         updateItemUI();
-        selectedBricks = []; // 기존 선택 초기화
-        return; // 폭탄 사용 후 종료
+        selectedBricks = [];
+        return;
       }
 
       // 3. [일반 브릭 선택 로직]
-      // 파괴 중인 칸 터치 방어
       if (grid[cy] && grid[cy][cx] && grid[cy][cx].isDestroying) return;
 
       let clicked = null;
-      // 떨어지는 브릭 우선 검색 (ID 기반)
+      // 낙하 브릭 우선 검색 (반올림 좌표 사용)
       const fIdx = fallingBricks.findIndex(b => b.x === cx && Math.round(b.y) === cy);
 
       if (fIdx > -1) {
@@ -284,21 +283,16 @@
       }
 
       if (clicked) {
-        // 이미 선택된 브릭인지 확인 (ID 기준)
         const idx = selectedBricks.findIndex(s => s.id === clicked.id);
-
         if (idx > -1) {
-          // 선택 해제
           selectedBricks.splice(idx, 1);
         } else {
-          // 신규 선택
           selectedBricks.push(clicked);
           try {
             selBrickSfx.currentTime = 0;
             selBrickSfx.play().catch(e => { });
           } catch (e) { }
 
-          // 2개 매칭 확인
           if (selectedBricks.length === 2) {
             const s1 = selectedBricks[0];
             const s2 = selectedBricks[1];
@@ -309,21 +303,36 @@
               combo = (now - lastMatchTime < 2000) ? Math.min(combo + 1, 10) : 1;
               lastMatchTime = now;
 
-              selectedBricks.forEach(s => {
-                if (s.isFalling) {
-                  // 공중 브릭 ID 기반 제거
-                  fallingBricks = fallingBricks.filter(b => b.id !== s.id);
-                } else if (grid[s.y] && grid[s.y][s.x] && grid[s.y][s.x].id === s.id) {
-                  // 그리드 브릭 제거 (상태 검증 후 처리)
-                  grid[s.y][s.x].isDestroying = true;
-                  setTimeout(() => {
-                    if (grid[s.y] && grid[s.y][s.x]) {
-                      grid[s.y][s.x] = 0;
-                      applyGravity();
+              // [핵심 보정] 선택된 ID 신분증 번호만 따로 리스트업
+              const targetIds = selectedBricks.map(s => s.id);
+              const targetCoords = selectedBricks.map(s => ({ x: s.x, y: s.y }));
+              selectedBricks = []; // 즉시 비워서 중복 클릭 차단
+
+              // 1. 낙하 브릭 처리: 좌표가 겹쳐도 내 리스트(targetIds)에 없는 ID는 절대 생존
+              fallingBricks = fallingBricks.filter(b => !targetIds.includes(b.id));
+
+              // 2. 그리드 브릭 처리: 정밀 타격
+              targetCoords.forEach((pos, i) => {
+                const currentId = targetIds[i];
+
+                // 좌표 이탈에 대비해 전체 그리드에서 해당 ID를 가진 칸만 파괴
+                loop: for (let gy = 0; gy < ROWS; gy++) {
+                  for (let gx = 0; gx < COLS; gx++) {
+                    if (grid[gy][gx] && grid[gy][gx].id === currentId) {
+                      grid[gy][gx].isDestroying = true;
+
+                      setTimeout(() => {
+                        // 삭제 시점에 다시 한번 ID 확인 (이중 잠금)
+                        if (grid[gy] && grid[gy][gx] && grid[gy][gx].id === currentId) {
+                          grid[gy][gx] = 0;
+                          applyGravity();
+                        }
+                      }, 250);
+                      break loop;
                     }
-                  }, 250);
+                  }
                 }
-                createBurstEffect(s.x, s.y);
+                createBurstEffect(pos.x, pos.y);
               });
 
               // 점수 반영
@@ -337,12 +346,10 @@
                 matchSfx.play().catch(e => { });
               } catch (e) { }
 
-              // 아이템 생성 주기 체크
               if (score - lastItemScore >= ITEM_THRESHOLD) {
                 spawnItem();
                 lastItemScore = score;
               }
-              selectedBricks = [];
             } else {
               // --- 매칭 실패 ---
               try {
@@ -543,4 +550,3 @@
 </body>
 
 </html>
-
