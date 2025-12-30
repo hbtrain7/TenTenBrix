@@ -156,7 +156,7 @@
       { score: 50000, interval: 800, gravity: 0.00007, count: 3 }    // 4단계 (추가!)
     ];
 
-    const introSfx = new Audio('sfx/intro.mp3');
+    const introSfx = new Audio('sfx/gameOver.mp3');
     const bgm = new Audio('sfx/bgm.mp3');
     const matchSfx = new Audio('sfx/matchSuccess.mp3');
     const endSfx = new Audio('sfx/endSfx.mp3');
@@ -342,7 +342,7 @@
           autoCombo = Math.min(autoCombo + 1, 5);
           score += 50 * autoCombo;
           scoreEl.innerText = score.toLocaleString();
-          try { autoSuccessSfx.currentTime = 0; autoSuccessSfx.play().catch(e => { }); } catch (e) { }
+          try { matchSfx.currentTime = 0; matchSfx.play().catch(e => { }); } catch (e) { }
           setTimeout(() => {
             if (grid[y] && grid[y][x] === b1) grid[y][x] = 0;
             if (grid[y] && grid[y][nx] === b2) grid[y][nx] = 0;
@@ -480,4 +480,3 @@
 </body>
 
 </html>
-
