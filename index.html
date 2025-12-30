@@ -116,14 +116,23 @@
         <div id="pauseBtn" class="hud-item" style="cursor:pointer;" onclick="togglePause()">PAUSE</div>
       </div>
     </div>
+
     <div id="start-screen" class="screen">
       <h1>TenTenBrix</h1>
-      <p style="font-size: 1.2rem; margin-bottom: 30px; color: #aaa;">아이템 시스템 업데이트 완료!</p>
+      <p id="mainBestDisplay" style="font-size: 1.2rem; margin-bottom: 30px; color: #00e676;">BEST: 0</p>
       <button id="realStartBtn" class="btn">START GAME</button>
     </div>
+
     <div id="gameover-screen" class="screen hidden">
       <h1>GAME OVER</h1>
-      <p id="finalScoreDisplay" style="font-size: 2.5rem; margin-bottom: 20px; color: #ffce00;">SCORE: 0</p>
+      <div style="text-align: center; margin: 20px 0;">
+        <p style="font-size: 1.2rem; color: #aaa; margin: 5px 0;">YOUR SCORE</p>
+        <p id="finalScoreDisplay" style="font-size: 3.5rem; margin: 0; color: #ffce00; font-weight: bold;">0</p>
+      </div>
+      <div style="background: rgba(255,255,255,0.1); padding: 10px 40px; border-radius: 15px; margin-bottom: 30px;">
+        <p style="font-size: 1rem; color: #fff; margin: 0;">🏆 BEST SCORE</p>
+        <p id="bestScoreDisplay" style="font-size: 1.5rem; color: #00e676; margin: 5px 0; font-weight: bold;">0</p>
+      </div>
       <button class="btn" onclick="showStartScreen()">RETRY</button>
     </div>
   </div>
@@ -173,6 +182,9 @@
     bgm.loop = true;
     gameOverSfx.loop = true; // 대기 화면에서도 계속 나와야 하므로 루프 설정
 
+    let playerName = "";
+    let highScore = localStorage.getItem('tenten_highscore') || 0;
+
     // --- [2] 초기화 ---
     function init() {
       resize();
@@ -207,11 +219,41 @@
       }, { passive: false });
 
       grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+      showStartScreen();
     }
 
     function resize() {
       BLOCK_SIZE = Math.min(window.innerWidth / (COLS + 0.5), (window.innerHeight - 120) / ROWS);
       canvas.width = COLS * BLOCK_SIZE; canvas.height = ROWS * BLOCK_SIZE;
+    }
+
+    function setupPlayerName() {
+      // 1. 저장된 이름이 있는지 먼저 확인
+      let savedName = localStorage.getItem('tenten_playername');
+
+      // 2. 이름이 이미 있다면 묻지 않고 바로 전역 변수에 할당 후 종료
+      if (savedName) {
+        playerName = savedName;
+        console.log("기존 유저 접속:", playerName);
+        return;
+      }
+
+      // 3. 처음 방문한 경우에만 딱 한 번 물어봄
+      const input = prompt("닉네임을 입력해주세요!\n(취소하거나 미입력 시 자동 생성됩니다)", "");
+
+      if (input && input.trim() !== "") {
+        // 유저가 이름을 직접 입력한 경우
+        savedName = input.trim();
+      } else {
+        // 취소를 누르거나 빈칸인 경우 -> 즉시 자동 생성
+        const randomId = Math.floor(1000 + Math.random() * 9000);
+        savedName = "TEN-" + randomId;
+      }
+
+      // 4. 결정된 이름을 로컬에 저장하고 변수에 할당
+      localStorage.setItem('tenten_playername', savedName);
+      playerName = savedName;
+      console.log("새 유저 생성:", playerName);
     }
 
     function spawnBricks(count) {
@@ -564,24 +606,98 @@
       lastTime = performance.now(); requestAnimationFrame(update);
     }
 
+
     function gameOver() {
-      gameActive = false; bgm.pause();
+      // 0. 게임 상태 및 BGM 정지
+      gameActive = false;
+      if (bgm) bgm.pause();
+
+      // 1. [기록 확인] 로컬 스토리지에서 하이스코어 가져오기 및 비교
+      let savedBest = localStorage.getItem('tenten_best') || 0;
+      savedBest = parseInt(savedBest);
+      let isNewRecord = false;
+
+      if (score > savedBest) {
+        savedBest = score;
+        localStorage.setItem('tenten_best', savedBest); // 신기록 로컬 저장
+        isNewRecord = true;
+      }
+
+      // 2. [연출] 화면 필터 및 변형 연출 (세피아 + 블러 + 축소)
       canvas.style.transition = "filter 0.5s ease, transform 0.5s ease";
       canvas.style.filter = "sepia(100%) saturate(300%) hue-rotate(-50deg) blur(5px)";
       canvas.style.transform = "scale(0.98)";
-      try { endSfx.play().catch(e => { }); } catch (e) { }
+
+      // 3. [음향] 엔딩 효과음(짧은 정지 효과음) 재생
+      try {
+        endSfx.currentTime = 0;
+        endSfx.play().catch(e => { });
+      } catch (e) { }
+
+      // 4. [지연 실행] 2초 대기 후 게임오버 결과 화면 표시
       setTimeout(() => {
-        finalScoreEl.innerText = "SCORE: " + score.toLocaleString();
-        document.getElementById('gameover-screen').classList.remove('hidden');
-        try { gameOverSfx.currentTime = 0; gameOverSfx.play().catch(e => { }); } catch (e) { }
+        // 현재 점수 주입 및 콤마 표시
+        const finalScoreDisplayEl = document.getElementById('finalScoreDisplay');
+        if (finalScoreDisplayEl) {
+          finalScoreDisplayEl.innerText = score.toLocaleString();
+
+          // 신기록일 경우 점수 색상을 민트색(#00ffcc)으로 변경하여 강조
+          if (isNewRecord) {
+            finalScoreDisplayEl.style.color = "#00ffcc";
+          } else {
+            finalScoreDisplayEl.style.color = "#ffce00"; // 기존 노란색 유지
+          }
+        }
+
+        // 하이스코어(BEST) 값 주입
+        const bestScoreDisplayEl = document.getElementById('bestScoreDisplay');
+        if (bestScoreDisplayEl) {
+          // 신기록일 경우 "NEW RECORD!" 텍스트를 덧붙여 쾌감 증폭
+          bestScoreDisplayEl.innerText = isNewRecord ?
+            savedBest.toLocaleString() + " (NEW!)" :
+            savedBest.toLocaleString();
+        }
+
+        // 게임오버 레이어 표시
+        const gameOverScreen = document.getElementById('gameover-screen');
+        if (gameOverScreen) {
+          gameOverScreen.classList.remove('hidden');
+        }
+
+        // 결과창 전용 배경 음악(루프) 재생
+        try {
+          gameOverSfx.currentTime = 0;
+          gameOverSfx.play().catch(e => { });
+        } catch (e) { }
       }, 2000);
     }
 
     function showStartScreen() {
+      //유저아이디 묻고 취소시 자동 생성 저장;
+      setupPlayerName();
+      const playerEl = document.getElementById('playerDisplay');
+      if (playerEl) playerEl.innerText = "PLAYER: " + playerName;
+      // 1. [추가] 시작 화면이 뜰 때 로컬 스토리지에서 베스트 스코어 가져오기
+      const savedBest = localStorage.getItem('tenten_best') || 0;
+      const mainBestEl = document.getElementById('mainBestDisplay'); // 상단에 추가한 BEST 표시용
+      if (mainBestEl) {
+        mainBestEl.innerText = "BEST: " + parseInt(savedBest).toLocaleString();
+      }
+
+      // 2. [기존 기능] 화면 전환 (유지)
       document.getElementById('gameover-screen').classList.add('hidden');
       document.getElementById('start-screen').classList.remove('hidden');
-      canvas.style.filter = "none"; canvas.style.transform = "scale(1)";
-      try { endSfx.pause(); endSfx.currentTime = 0; gameOverSfx.play().catch(e => { }); } catch (e) { }
+
+      // 3. [기존 기능] 캔버스 필터 초기화 (유지)
+      canvas.style.filter = "none";
+      canvas.style.transform = "scale(1)";
+
+      // 4. [기존 기능] 사운드 제어 (유지)
+      try {
+        endSfx.pause();
+        endSfx.currentTime = 0;
+        gameOverSfx.play().catch(e => { }); // 대기 화면 음악 재생
+      } catch (e) { }
     }
 
     function togglePause() { isPaused = !isPaused; if (!isPaused) { lastTime = performance.now(); requestAnimationFrame(update); } }
