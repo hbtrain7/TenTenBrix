@@ -156,23 +156,23 @@
       { score: 50000, interval: 800, gravity: 0.00007, count: 3 }    // 4단계 (추가!)
     ];
 
-    const introSfx = new Audio('sfx/gameOver.mp3');
+    // 인트로 음원을 따로 두지 않고 gameOver 음원을 공용으로 사용합니다.
     const bgm = new Audio('sfx/bgm.mp3');
     const matchSfx = new Audio('sfx/matchSuccess.mp3');
     const endSfx = new Audio('sfx/endSfx.mp3');
-    const gameOverSfx = new Audio('sfx/gameOver.mp3');
+    const gameOverSfx = new Audio('sfx/gameOver.mp3'); // 대기/엔딩 공용
     const selBrickSfx = new Audio('sfx/brickSelect.mp3');
-    const autoSuccessSfx = new Audio('sfx/autoSuccess.mp3');
     const matchFailedSfx = new Audio('sfx/matchFailed.mp3');
     const selCrossBombSfx = new Audio('sfx/crossBombSelect.mp3');
     const crossBombSfx = new Audio('sfx/crossBomb.mp3');
-    introSfx.loop = true; bgm.loop = true;
+    bgm.loop = true;
+    gameOverSfx.loop = true; // 대기 화면에서도 계속 나와야 하므로 루프 설정
 
     // --- [2] 초기화 ---
     function init() {
       resize();
       const playIntroOnce = () => {
-        introSfx.play().catch(e => { });
+        gameOverSfx.play().catch(e => { });
         window.removeEventListener('mousedown', playIntroOnce);
         window.removeEventListener('touchstart', playIntroOnce);
       };
@@ -225,67 +225,130 @@
     function handleInput(e) {
       if (!gameActive || isPaused) return;
 
+      // 0. 좌표 계산 및 터치 대응
       const rect = canvas.getBoundingClientRect();
       const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-      const clientY = e.clientY || (e.touches && e.touches[0].clientY); // 괄호 오타 수정 완료
+      const clientY = e.clientY || (e.touches && e.touches[0].clientY);
       const sx = clientX - rect.left;
       const sy = clientY - rect.top;
 
+      // 1. [아이템 수집] 필드에 떠다니는 아이템 터치 시 최우선 처리
       for (let i = fieldItems.length - 1; i >= 0; i--) {
         const it = fieldItems[i];
         if (Math.hypot(it.x - sx, it.y - sy) < it.radius + 20) {
           inventory.crossBomb++;
           fieldItems.splice(i, 1);
           updateItemUI();
-          return;
+          return; // 아이템을 먹었으면 다른 로직은 실행하지 않음
         }
       }
 
       const cx = Math.floor(sx / BLOCK_SIZE);
       const cy = Math.floor(sy / BLOCK_SIZE);
-      if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) { selectedBricks = []; return; }
+
+      // 캔버스 범위 밖 예외 처리
+      if (cx < 0 || cx >= COLS || cy < 0 || cy >= ROWS) {
+        selectedBricks = [];
+        return;
+      }
+
+      // 2. [아이템 사용 실행] 크로스밤 모드가 활성화된 경우
+      if (isItemMode && inventory.crossBomb > 0) {
+        executeCrossBomb(cx, cy); // 십자 폭발 실행
+        isItemMode = false;
+        inventory.crossBomb--;
+        updateItemUI();
+        selectedBricks = []; // 기존 선택 초기화
+        return; // 폭탄 사용 후 종료
+      }
+
+      // 3. [일반 브릭 선택 로직]
+      // 파괴 중인 칸 터치 방어
       if (grid[cy] && grid[cy][cx] && grid[cy][cx].isDestroying) return;
 
       let clicked = null;
+      // 떨어지는 브릭 우선 검색 (ID 기반)
       const fIdx = fallingBricks.findIndex(b => b.x === cx && Math.round(b.y) === cy);
+
       if (fIdx > -1) {
         clicked = { ...fallingBricks[fIdx], isFalling: true };
       } else if (grid[cy] && grid[cy][cx] && grid[cy][cx] !== 0) {
-        clicked = { x: cx, y: cy, value: grid[cy][cx].value, isFalling: false, id: grid[cy][cx].id };
+        // 고정된 브릭 검색
+        clicked = {
+          x: cx,
+          y: cy,
+          value: grid[cy][cx].value,
+          isFalling: false,
+          id: grid[cy][cx].id
+        };
       }
 
       if (clicked) {
+        // 이미 선택된 브릭인지 확인 (ID 기준)
         const idx = selectedBricks.findIndex(s => s.id === clicked.id);
+
         if (idx > -1) {
+          // 선택 해제
           selectedBricks.splice(idx, 1);
         } else {
+          // 신규 선택
           selectedBricks.push(clicked);
-          try { selBrickSfx.currentTime = 0; selBrickSfx.play().catch(e => { }); } catch (e) { }
+          try {
+            selBrickSfx.currentTime = 0;
+            selBrickSfx.play().catch(e => { });
+          } catch (e) { }
 
+          // 2개 매칭 확인
           if (selectedBricks.length === 2) {
-            const s1 = selectedBricks[0], s2 = selectedBricks[1];
+            const s1 = selectedBricks[0];
+            const s2 = selectedBricks[1];
+
             if (s1.value + s2.value === 10) {
+              // --- 매칭 성공 ---
               const now = Date.now();
               combo = (now - lastMatchTime < 2000) ? Math.min(combo + 1, 10) : 1;
               lastMatchTime = now;
+
               selectedBricks.forEach(s => {
                 if (s.isFalling) {
+                  // 공중 브릭 ID 기반 제거
                   fallingBricks = fallingBricks.filter(b => b.id !== s.id);
                 } else if (grid[s.y] && grid[s.y][s.x] && grid[s.y][s.x].id === s.id) {
+                  // 그리드 브릭 제거 (상태 검증 후 처리)
                   grid[s.y][s.x].isDestroying = true;
-                  setTimeout(() => { if (grid[s.y] && grid[s.y][s.x]) grid[s.y][s.x] = 0; applyGravity(); }, 250);
+                  setTimeout(() => {
+                    if (grid[s.y] && grid[s.y][s.x]) {
+                      grid[s.y][s.x] = 0;
+                      applyGravity();
+                    }
+                  }, 250);
                 }
                 createBurstEffect(s.x, s.y);
               });
+
+              // 점수 반영
               score += 100 * combo;
               scoreEl.innerText = score.toLocaleString();
               comboEl.innerText = `${combo} COMBO!`;
               comboEl.style.display = 'inline';
-              try { matchSfx.currentTime = 0; matchSfx.play().catch(e => { }); } catch (e) { }
-              if (score - lastItemScore >= ITEM_THRESHOLD) { spawnItem(); lastItemScore = score; }
+
+              try {
+                matchSfx.currentTime = 0;
+                matchSfx.play().catch(e => { });
+              } catch (e) { }
+
+              // 아이템 생성 주기 체크
+              if (score - lastItemScore >= ITEM_THRESHOLD) {
+                spawnItem();
+                lastItemScore = score;
+              }
               selectedBricks = [];
             } else {
-              try { matchFailedSfx.currentTime = 0; matchFailedSfx.play().catch(e => { }); } catch (e) { }
+              // --- 매칭 실패 ---
+              try {
+                matchFailedSfx.currentTime = 0;
+                matchFailedSfx.play().catch(e => { });
+              } catch (e) { }
               selectedBricks = [];
             }
           }
@@ -446,7 +509,7 @@
       grid = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
       fallingBricks = []; selectedBricks = []; effects = []; fieldItems = [];
       scoreEl.innerText = "0"; comboEl.style.display = 'none'; updateItemUI();
-      try { endSfx.pause(); endSfx.currentTime = 0; gameOverSfx.pause(); gameOverSfx.currentTime = 0; introSfx.pause(); introSfx.currentTime = 0; bgm.currentTime = 0; bgm.play().catch(e => { }); } catch (e) { }
+      try { endSfx.pause(); endSfx.currentTime = 0; gameOverSfx.pause(); gameOverSfx.currentTime = 0; bgm.currentTime = 0; bgm.play().catch(e => { }); } catch (e) { }
       document.getElementById('start-screen').classList.add('hidden');
       document.getElementById('gameover-screen').classList.add('hidden');
       lastTime = performance.now(); requestAnimationFrame(update);
@@ -461,7 +524,7 @@
       setTimeout(() => {
         finalScoreEl.innerText = "SCORE: " + score.toLocaleString();
         document.getElementById('gameover-screen').classList.remove('hidden');
-        try { gameOverSfx.play().catch(e => { }); } catch (e) { }
+        try { gameOverSfx.currentTime = 0; gameOverSfx.play().catch(e => { }); } catch (e) { }
       }, 2000);
     }
 
@@ -469,7 +532,7 @@
       document.getElementById('gameover-screen').classList.add('hidden');
       document.getElementById('start-screen').classList.remove('hidden');
       canvas.style.filter = "none"; canvas.style.transform = "scale(1)";
-      try { endSfx.pause(); endSfx.currentTime = 0; gameOverSfx.pause(); gameOverSfx.currentTime = 0; introSfx.currentTime = 0; introSfx.play().catch(e => { }); } catch (e) { }
+      try { endSfx.pause(); endSfx.currentTime = 0; gameOverSfx.play().catch(e => { }); } catch (e) { }
     }
 
     function togglePause() { isPaused = !isPaused; if (!isPaused) { lastTime = performance.now(); requestAnimationFrame(update); } }
