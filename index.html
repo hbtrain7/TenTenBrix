@@ -119,7 +119,13 @@
 
     <div id="start-screen" class="screen">
       <h1>TenTenBrix</h1>
+
+      <p style="color: #ffce00; font-weight: bold; margin: 0 0 10px 0; font-size: 1rem;">[ 관장님을 위한 난이도 조절 버전 ]</p>
+
+      <p id="playerDisplay" style="font-size: 1.1rem; color: #ffffff; margin-bottom: 5px; opacity: 0.8;">PLAYER: -</p>
+
       <p id="mainBestDisplay" style="font-size: 1.2rem; margin-bottom: 30px; color: #00e676;">BEST: 0</p>
+
       <button id="realStartBtn" class="btn">START GAME</button>
     </div>
 
@@ -164,10 +170,10 @@
 
     const TERMINAL_VELOCITY = 0.025;
     const STAGES = [
-      { score: 1000, interval: 1000, gravity: 0.00001, count: 1 },    // 1단계
-      { score: 10000, interval: 1000, gravity: 0.00002, count: 2 },   // 2단계
-      { score: 50000, interval: 900, gravity: 0.00003, count: 2 },   // 3단계
-      { score: 100000, interval: 900, gravity: 0.00004, count: 3 }    // 4단계 (추가!)
+      { score: 800, interval: 1000, gravity: 0.00001, count: 1 },    // 1단계
+      { score: 5000, interval: 1000, gravity: 0.00002, count: 2 },   // 2단계
+      { score: 20000, interval: 900, gravity: 0.00002, count: 2 },   // 3단계
+      { score: 50000, interval: 900, gravity: 0.00003, count: 3 }    // 4단계 (추가!)
     ];
 
     // 인트로 음원을 따로 두지 않고 gameOver 음원을 공용으로 사용합니다.
@@ -708,4 +714,3 @@
 </body>
 
 </html>
-
