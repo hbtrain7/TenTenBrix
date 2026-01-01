@@ -627,7 +627,6 @@
       // 0. 게임 상태 및 BGM 정지
       gameActive = false;
       if (bgm) bgm.pause();
-      loadRanking();
 
       // 1. [기록 확인] 로컬 스토리지에서 하이스코어 가져오기 및 비교
       let savedBest = localStorage.getItem('tenten_best') || 0;
@@ -639,7 +638,12 @@
         localStorage.setItem('tenten_best', savedBest); // 신기록 로컬 저장
         isNewRecord = true;
         // [추가] 신기록 달성 시에만 구글 시트로 전송!
-        sendRankToServer(playerName, savedBest);
+        // [수정] 점수를 먼저 보내고, 그 '성공 응답'을 받은 후에 랭킹을 불러옵니다.
+        sendRankToServer(playerName, savedBest).then(() => {
+          loadRanking();
+        });
+      } else {
+        loadRanking();
       }
 
       // 2. [연출] 화면 필터 및 변형 연출 (세피아 + 블러 + 축소)
@@ -732,9 +736,9 @@
 
     // 랭킹 서버(구글 시트)로 점수 보내기
     function sendRankToServer(name, score) {
-      if (!SCRIPT_URL || SCRIPT_URL.includes("여기에")) return;
+      if (!SCRIPT_URL || SCRIPT_URL.includes("여기에")) return Promise.resolve();
 
-      fetch(SCRIPT_URL, {
+      return fetch(SCRIPT_URL, {
         method: "POST",
         mode: "no-cors", // CORS 에러 방지 (no-cors는 응답 확인이 어렵지만 데이터는 전송됨)
         headers: { "Content-Type": "application/json" },
