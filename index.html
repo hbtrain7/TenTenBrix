@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>TenTenBrix v3.8 - Item System</title>
+  <title>TenTenBrix v1.3 - Ranking System</title>
   <style>
     :root {
       --primary-color: #e94560;
@@ -120,7 +120,7 @@
     <div id="start-screen" class="screen">
       <h1>TenTenBrix</h1>
 
-      <p style="color: #ffce00; font-weight: bold; margin: 0 0 10px 0; font-size: 1rem;">[ 관장님을 위한 더 천천히 버전 ]</p>
+      <p style="color: #ffce00; font-weight: bold; margin: 0 0 10px 0; font-size: 1rem;">[ 관장님을 위한 난이도 조절 버전 ]</p>
 
       <p id="playerDisplay" style="font-size: 1.1rem; color: #ffffff; margin-bottom: 5px; opacity: 0.8;">PLAYER: -</p>
 
@@ -131,15 +131,21 @@
 
     <div id="gameover-screen" class="screen hidden">
       <h1>GAME OVER</h1>
-      <div style="text-align: center; margin: 20px 0;">
-        <p style="font-size: 1.2rem; color: #aaa; margin: 5px 0;">YOUR SCORE</p>
-        <p id="finalScoreDisplay" style="font-size: 3.5rem; margin: 0; color: #ffce00; font-weight: bold;">0</p>
+
+      <div style="text-align: center; margin: 10px 0;">
+        <p style="font-size: 1.1rem; color: #aaa; margin: 5px 0;">YOUR SCORE</p>
+        <p id="finalScoreDisplay" style="font-size: 2.5rem; margin: 0; color: #ffce00; font-weight: bold;">0</p>
       </div>
-      <div style="background: rgba(255,255,255,0.1); padding: 10px 40px; border-radius: 15px; margin-bottom: 30px;">
-        <p style="font-size: 1rem; color: #fff; margin: 0;">🏆 BEST SCORE</p>
-        <p id="bestScoreDisplay" style="font-size: 1.5rem; color: #00e676; margin: 5px 0; font-weight: bold;">0</p>
+
+      <div id="ranking-board"
+        style="background: rgba(255,255,255,0.05); width: 80%; max-width: 300px; padding: 15px; border-radius: 15px; margin-bottom: 20px; border: 1px solid rgba(0,230,118,0.3);">
+        <p style="font-size: 1rem; color: #00e676; margin: 0 0 10px 0; font-weight: bold;">🏆 REAL-TIME RANKING</p>
+        <div id="ranking-list" style="font-size: 0.9rem; text-align: left; line-height: 1.6;">
+          <p style="text-align: center; color: #888;">데이터 불러오는 중...</p>
+        </div>
       </div>
-      <button class="btn" onclick="showStartScreen()">RETRY</button>
+
+      <button class="btn" onclick="showStartScreen()" style="padding: 12px 40px; font-size: 1.4rem;">RETRY</button>
     </div>
   </div>
 
@@ -192,6 +198,9 @@
     let playerName = "";
     let highScore = localStorage.getItem('tenten_highscore') || 0;
 
+
+    //랭킹표시를 위한 변수
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwQ7liKKIGx_3qWKFYD_j_EDslF1i2DgOhP48P5O0V_8LVW8e0898ZdiFxnob19NaVT/exec";
     // --- [2] 초기화 ---
     function init() {
       resize();
@@ -618,6 +627,7 @@
       // 0. 게임 상태 및 BGM 정지
       gameActive = false;
       if (bgm) bgm.pause();
+      loadRanking();
 
       // 1. [기록 확인] 로컬 스토리지에서 하이스코어 가져오기 및 비교
       let savedBest = localStorage.getItem('tenten_best') || 0;
@@ -628,6 +638,8 @@
         savedBest = score;
         localStorage.setItem('tenten_best', savedBest); // 신기록 로컬 저장
         isNewRecord = true;
+        // [추가] 신기록 달성 시에만 구글 시트로 전송!
+        sendRankToServer(playerName, savedBest);
       }
 
       // 2. [연출] 화면 필터 및 변형 연출 (세피아 + 블러 + 축소)
@@ -691,6 +703,14 @@
         mainBestEl.innerText = "BEST: " + parseInt(savedBest).toLocaleString();
       }
 
+      // [추가] 기존 유저 중 시트에 등록된 적이 없는 경우(또는 한 번 더 확인차) 첫 접속 시 전송
+      // 로컬스토리지에 '등록여부'를 체크해서 딱 한 번만 보내게 함
+      const isRegistered = localStorage.getItem('tenten_rank_registered');
+      if (savedBest > 0 && !isRegistered) {
+        sendRankToServer(playerName, savedBest);
+        localStorage.setItem('tenten_rank_registered', 'true'); // 등록 완료 마크
+      }
+
       // 2. [기존 기능] 화면 전환 (유지)
       document.getElementById('gameover-screen').classList.add('hidden');
       document.getElementById('start-screen').classList.remove('hidden');
@@ -710,10 +730,55 @@
     function togglePause() { isPaused = !isPaused; if (!isPaused) { lastTime = performance.now(); requestAnimationFrame(update); } }
     function checkDanger() { return grid[3] && grid[3].some(c => c !== 0); }
 
+    // 랭킹 서버(구글 시트)로 점수 보내기
+    function sendRankToServer(name, score) {
+      if (!SCRIPT_URL || SCRIPT_URL.includes("여기에")) return;
+
+      fetch(SCRIPT_URL, {
+        method: "POST",
+        mode: "no-cors", // CORS 에러 방지 (no-cors는 응답 확인이 어렵지만 데이터는 전송됨)
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name, score: score })
+      }).then(() => {
+        console.log("랭킹 등록 완료:", name, score);
+      }).catch(e => console.error("랭킹 등록 실패:", e));
+    }
+
+    function loadRanking() {
+      const rankingListEl = document.getElementById('ranking-list');
+
+      // 1. 구글 시트에 GET 요청 (doGet 함수 실행)
+      fetch(SCRIPT_URL)
+        .then(response => response.json())
+        .then(data => {
+          rankingListEl.innerHTML = ""; // 기존 로딩 메시지 삭제
+
+          // 상위 5명만 표시
+          data.slice(0, 5).forEach((entry, index) => {
+            const row = document.createElement('div');
+            row.style.display = "flex";
+            row.style.justifyContent = "space-between";
+            row.style.borderBottom = "1px solid rgba(255,255,255,0.1)";
+            row.style.padding = "3px 0";
+
+            // 내 이름과 같으면 강조색 적용
+            const isMe = entry[0] === playerName ? "color: #00ffcc; font-weight: bold;" : "color: #fff;";
+
+            row.innerHTML = `
+                <span style="${isMe}">${index + 1}. ${entry[0]}</span>
+                <span style="${isMe}">${parseInt(entry[1]).toLocaleString()}</span>
+            `;
+            rankingListEl.appendChild(row);
+          });
+        })
+        .catch(e => {
+          console.error("랭킹 로드 실패:", e);
+          rankingListEl.innerHTML = "<p style='text-align:center;'>랭킹을 불러올 수 없습니다.</p>";
+        });
+    }
+
     init();
   </script>
 </body>
 
 </html>
-
-
