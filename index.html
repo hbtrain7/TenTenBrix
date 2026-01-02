@@ -275,27 +275,28 @@
     }
 
     function resize() {
-      // 1. 가로 너비를 기준으로 브릭 크기를 먼저 결정합니다. (양옆 여백 최소화)
-      // 화면 전체 너비의 98%를 6칸으로 나눕니다.
-      const sizeBasedOnWidth = (window.innerWidth * 0.98) / COLS;
+      // 1. 가로 너비를 기준으로 브릭 크기를 계산 (화면 너비 100% 활용)
+      const sizeBasedOnWidth = window.innerWidth / COLS;
 
-      // 2. 세로 높이를 기준으로 브릭 크기를 계산합니다.
-      // 상단 HUD와 겹쳐도 상관없으므로 여백을 거의 주지 않습니다. (전체 높이의 95%)
-      const sizeBasedOnHeight = (window.innerHeight * 0.95) / ROWS;
+      // 2. 세로 높이를 기준으로 브릭 크기를 계산 (화면 높이 100% 활용)
+      // 사장님 의도대로 여백 없이 innerHeight 전체를 ROWS로 나눕니다.
+      const sizeBasedOnHeight = window.innerHeight / ROWS;
 
-      // 3. [핵심 변경] 이전보다 더 큰 값을 허용하도록 로직 수정
-      // 스마트폰은 세로가 길기 때문에 보통 가로 기준(sizeBasedOnWidth)으로 맞추는 것이 브릭이 가장 커집니다.
+      // 3. 브릭 크기 결정 (둘 중 더 '큰' 브릭을 만들 수 있는 제약조건을 선택)
+      // 보통 스마트폰은 가로가 좁으므로 sizeBasedOnWidth가 선택되어 가로에 꽉 차게 됩니다.
       BLOCK_SIZE = Math.min(sizeBasedOnWidth, sizeBasedOnHeight);
 
-      // 4. 캔버스 크기 설정
+      // 4. 캔버스 실제 크기 설정
       canvas.width = COLS * BLOCK_SIZE;
       canvas.height = ROWS * BLOCK_SIZE;
 
-      // 5. [추가] 화면 중앙 정렬 및 상단 밀착
+      // 5. 화면 중앙 정렬 및 최상단 밀착
       canvas.style.position = "absolute";
-      canvas.style.top = "0px"; // 최상단에 붙임 (HUD와 겹침 허용)
-      canvas.style.left = "50%";
-      canvas.style.transform = "translateX(-50%)"; // 가로 중앙 정렬
+      canvas.style.top = "0px"; // 상단 여백 0
+
+      // 화면 중앙 배치를 위한 계산
+      const horizontalMargin = (window.innerWidth - canvas.width) / 2;
+      canvas.style.left = horizontalMargin + "px";
     }
 
     function setupPlayerName() {
