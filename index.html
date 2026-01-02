@@ -52,16 +52,32 @@
     .hud {
       display: flex;
       justify-content: space-between;
-      font-size: 1.2rem;
+      align-items: center;
+      /* 아이템들이 세로 중앙에 오도록 */
+      font-size: 0.9rem;
+      /* 전체적인 글자 크기 축소 (1.2 -> 0.9) */
       font-weight: bold;
     }
 
     .hud-item {
-      background: rgba(0, 0, 0, 0.7);
-      padding: 8px 15px;
-      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.8);
+      /* 젤리와 겹쳐도 잘 보이게 배경 진하게 */
+      padding: 5px 12px;
+      /* 위아래 패딩 줄임 */
+      border-radius: 8px;
       pointer-events: auto;
-      border: 2px solid var(--primary-color);
+      border: 1.5px solid var(--primary-color);
+      /* 테두리도 조금 얇게 */
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    #pauseBtn {
+      min-width: 35px;
+      justify-content: center;
+      font-size: 1.2rem;
+      /* 기호는 조금 커야 잘 보임 */
     }
 
     .screen {
@@ -136,7 +152,7 @@
     <div id="start-screen" class="screen">
       <h1>TenTenBrix</h1>
 
-      <p style="color: #ffce00; font-weight: bold; margin: 0 0 10px 0; font-size: 1rem;">[ 관장님을 위한 난이도 조절 버전 ]</p>
+      <p style="color: #ffce00; font-weight: bold; margin: 0 0 10px 0; font-size: 1rem;">[ 젤리컨셉 디자인 적용중 ]</p>
 
       <p id="playerDisplay" style="font-size: 1.1rem; color: #ffffff; margin-bottom: 5px; opacity: 0.8;">PLAYER: -</p>
 
@@ -483,25 +499,36 @@
 
               // [2] 0.2초 진동 후에 데이터 삭제 및 중력 적용
               setTimeout(() => {
-                // 이제 리스트에서 필터링 (깜빡임 원천 차단)
+                // 1. 낙하 중인 브릭 리스트에서 먼저 제거
                 fallingBricks = fallingBricks.filter(b => !targetIds.includes(b.id));
 
+                // 2. 그리드에 있는 브릭들 처리
                 targetIds.forEach((tId) => {
                   loop: for (let gy = 0; gy < ROWS; gy++) {
                     for (let gx = 0; gx < COLS; gx++) {
                       if (grid[gy][gx] && grid[gy][gx].id === tId) {
+                        // 진동 끄고 파편 효과 및 소멸 상태 돌입
                         grid[gy][gx].isVibrating = false;
                         grid[gy][gx].isDestroying = true;
+                        createBurstEffect(gx, gy);
 
-                        const finalGy = gy, finalGx = gx, finalId = tId;
+                        // [핵심 수정] 250ms 뒤에 지울 때, 좌표를 믿지 말고 ID로 다시 찾습니다.
+                        const targetIdForDelete = tId;
 
                         setTimeout(() => {
-                          if (grid[finalGy] && grid[finalGy][finalGx] && grid[finalGy][finalGx].id === finalId) {
-                            grid[finalGy][finalGx] = 0;
-                            applyGravity();
+                          // 그리드 전체를 스캔해서 해당 ID를 가진 젤리를 찾아 '0'으로 만듭니다.
+                          // 이렇게 하면 중력 때문에 위치가 바뀌었어도 정확히 찾아 지웁니다.
+                          for (let dy = 0; dy < ROWS; dy++) {
+                            for (let dx = 0; dx < COLS; dx++) {
+                              if (grid[dy][dx] && grid[dy][dx].id === targetIdForDelete) {
+                                grid[dy][dx] = 0;
+                                applyGravity(); // 지운 후 중력 적용
+                                return; // 지웠으면 해당 ID 탐색 종료
+                              }
+                            }
                           }
                         }, 250);
-                        createBurstEffect(gx, gy);
+
                         break loop;
                       }
                     }
@@ -588,15 +615,27 @@
           try { matchSfx.currentTime = 0; matchSfx.play().catch(e => { }); } catch (e) { }
 
           // 0.2초 진동 후 투명화 및 삭제 진행
+          // 0.2초 진동 후 투명화 및 삭제 진행
           setTimeout(() => {
             b1.isVibrating = false; b2.isVibrating = false;
             b1.isDestroying = true; b2.isDestroying = true;
-            createBurstEffect(x, y, "#00ffcc"); createBurstEffect(nx, y, "#00ffcc");
+            createBurstEffect(x, y, "#00ffcc");
+            createBurstEffect(nx, y, "#00ffcc");
 
+            // [핵심 수정] 좌표(y, x)가 아니라 객체 자체를 추적해서 삭제
             setTimeout(() => {
-              if (grid[y] && grid[y][x] === b1) grid[y][x] = 0;
-              if (grid[y] && grid[y][nx] === b2) grid[y][nx] = 0;
-              applyGravity();
+              let deleted = false;
+              for (let gy = 0; gy < ROWS; gy++) {
+                for (let gx = 0; gx < COLS; gx++) {
+                  // 그리드를 돌며 b1 또는 b2 객체와 일치하는 칸을 찾아 0으로 만듦
+                  if (grid[gy][gx] === b1 || grid[gy][gx] === b2) {
+                    grid[gy][gx] = 0;
+                    deleted = true;
+                  }
+                }
+              }
+              // 하나라도 지워졌다면 중력 적용
+              if (deleted) applyGravity();
             }, 250);
           }, 200); // 찰진 진동 시간
         }
