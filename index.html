@@ -398,7 +398,18 @@
     }
 
     function spawnItem() {
-      fieldItems.push({ x: -50, y: Math.random() * (canvas.height - 100) + 50, vx: 2, radius: 25, type: 'crossBomb', angle: 0 });
+      // 캔버스 왼쪽 밖에서 등장
+      fieldItems.push({
+        x: -50,
+        // [수정] 위아래 100px 여백을 두어 너무 끝에 붙지 않게 함
+        y: Math.random() * (canvas.height - 200) + 100,
+        vx: 2.5, // 너무 빠르지 않게
+        radius: 28, // 크기 살짝 키움
+        type: 'crossBomb',
+        angle: 0
+      });
+      // [추가] 사운드로 등장 알림 (선택사항)
+      try { selCrossBombSfx.play().catch(e => { }); } catch (e) { }
     }
 
     function handleInput(e) {
@@ -412,13 +423,18 @@
       const sy = clientY - rect.top;
 
       // 1. [아이템 수집] 필드 아이템 최우선 처리
+      // handleInput 함수 내 아이템 수집 부분
       for (let i = fieldItems.length - 1; i >= 0; i--) {
         const it = fieldItems[i];
-        if (Math.hypot(it.x - sx, it.y - sy) < it.radius + 20) {
-          inventory.crossBomb++;
-          fieldItems.splice(i, 1);
-          updateItemUI();
-          return;
+        // 터치 좌표와 아이템 사이의 거리 계산 (판정 범위 40으로 상향)
+        if (Math.hypot(it.x - sx, it.y - sy) < it.radius + 40) {
+          inventory.crossBomb++; // 인벤토리 증가
+          fieldItems.splice(i, 1); // 필드에서 제거
+          updateItemUI(); // [중요] UI 즉시 갱신 함수 호출
+
+          // 수집 효과음 (선택 사항)
+          try { selCrossBombSfx.currentTime = 0; selCrossBombSfx.play().catch(e => { }); } catch (e) { }
+          return; // 아이템 먹었으면 브릭 선택 로직은 건너뜀
         }
       }
 
@@ -573,10 +589,23 @@
     }
 
     function updateItemUI() {
-      document.getElementById('bombCount').innerText = inventory.crossBomb;
+      const bombCountEl = document.getElementById('bombCount');
+      if (bombCountEl) {
+        bombCountEl.innerText = inventory.crossBomb;
+      }
+
       const btn = document.getElementById('bombBtn');
-      btn.style.background = isItemMode ? "rgba(163, 73, 235, 0.8)" : "rgba(163, 73, 235, 0.2)";
-      btn.style.boxShadow = isItemMode ? "0 0 15px #a349eb" : "none";
+      if (btn) {
+        // [수정] 아이템 모드(사용 중)일 때 강렬한 보라색 배경과 글로우 효과
+        btn.style.background = isItemMode ? "rgba(163, 73, 235, 0.8)" : "rgba(163, 73, 235, 0.2)";
+        btn.style.boxShadow = isItemMode ? "0 0 15px #a349eb" : "0 0 5px rgba(0,0,0,0.5)";
+
+        // [추가] 폭탄이 0개면 버튼을 반투명하게 해서 비활성 상태임을 표시
+        btn.style.opacity = (inventory.crossBomb > 0) ? "1" : "0.4";
+
+        // [추가] 슬림해진 디자인에 맞춰 테두리 색상 강조
+        btn.style.borderColor = isItemMode ? "#dcbfff" : "#a349eb";
+      }
     }
 
     function applyGravity() {
@@ -681,7 +710,7 @@
       // 1. 화면 초기화
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // 2. 배경 격자 (단순화)
+      // 2. 배경 격자
       ctx.strokeStyle = "#25374a";
       ctx.lineWidth = 1;
       for (let i = 0; i <= COLS; i++) {
@@ -690,9 +719,9 @@
       for (let j = 0; j <= ROWS; j++) {
         ctx.beginPath(); ctx.moveTo(0, j * BLOCK_SIZE); ctx.lineTo(canvas.width, j * BLOCK_SIZE); ctx.stroke();
       }
-      // [복구] 3. 데드라인(위험 라인) 그리기
+
+      // 3. 데드라인(위험 라인)
       const isDanger = checkDanger();
-      // 위험 상태일 때 0.25초 간격으로 깜빡이는 효과
       ctx.strokeStyle = (isDanger && Math.floor(Date.now() / 250) % 2 === 0) ? "transparent" : (isDanger ? "#ff0000" : "#ff4b2b");
       ctx.lineWidth = 3;
       ctx.beginPath();
@@ -700,32 +729,20 @@
       ctx.lineTo(canvas.width, DEADLINE * BLOCK_SIZE);
       ctx.stroke();
 
-      // 3. 안착된 브릭 그리기 (가장 중요)
-      // forEach 대신 에러에 강한 이중 for문을 사용합니다.
+      // 4. 안착된 브릭 그리기 (이미지 활용)
       for (let y = 0; y < ROWS; y++) {
         for (let x = 0; x < COLS; x++) {
           const cell = grid[y][x];
           if (cell && cell !== 0) {
             ctx.save();
-            // 투명도 설정
-            if (cell.isDestroying) {
-              ctx.globalAlpha = 0.3;
-            } else {
-              ctx.globalAlpha = 1.0;
-            }
-
-            // drawBrick 호출 시 에러가 나도 루프가 깨지지 않게 처리
-            try {
-              drawBrick(x, y, cell.value, cell.isVibrating === true);
-            } catch (e) {
-              console.error("Drawing error at", x, y);
-            }
+            ctx.globalAlpha = cell.isDestroying ? 0.3 : 1.0;
+            drawBrick(x, y, cell.value, cell.isVibrating === true);
             ctx.restore();
           }
         }
       }
 
-      // 4. 낙하 브릭 그리기
+      // 5. 낙하 중인 브릭 그리기 (이미지 활용)
       fallingBricks.forEach(b => {
         if (b) {
           ctx.save();
@@ -734,19 +751,46 @@
         }
       });
 
-      // 5. 선택 테두리 그리기 (이 부분이 범인이었으므로 로직을 분리)
-      // s.id를 이용해 grid를 뒤지지 않고, s.x, s.y 좌표를 직접 사용하거나
-      // grid 조회를 최소화합니다.
+      // 6. 선택 테두리 (하얀 테두리)
       selectedBricks.forEach(s => {
         ctx.save();
         ctx.strokeStyle = "white";
         ctx.lineWidth = 4;
-        // 매칭 성공해서 진동 중일 때도 테두리가 유지되도록 합니다.
         ctx.strokeRect(s.x * BLOCK_SIZE + 5, s.y * BLOCK_SIZE + 5, BLOCK_SIZE - 10, BLOCK_SIZE - 10);
         ctx.restore();
       });
 
-      // 6. 파편 효과 (유지)
+      // [핵심 수정] 7. 필드 아이템(폭탄) 그리기
+      // 브릭들보다 나중에 그려서 항상 '맨 위' 레이어에 오도록 배치했습니다.
+      fieldItems.forEach(it => {
+        ctx.save();
+        ctx.translate(it.x, it.y);
+        ctx.rotate(it.angle);
+
+        // 번쩍이는 보라색 광원 효과 (존재감 부여)
+        ctx.shadowBlur = 25;
+        ctx.shadowColor = "#ff00ff";
+
+        // 외곽선이 있는 보라색 구체
+        ctx.beginPath();
+        ctx.arc(0, 0, it.radius, 0, Math.PI * 2);
+        ctx.fillStyle = "#a349eb";
+        ctx.fill();
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // 구체 중앙에 폭탄 기호 표시
+        ctx.fillStyle = "white";
+        ctx.font = "bold 25px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("💣", 0, 2);
+
+        ctx.restore();
+      });
+
+      // 8. 파편 효과 (팡! 터지는 이펙트)
       effects = effects.filter(ef => ef.life > 0);
       effects.forEach((ef) => {
         ctx.save();
