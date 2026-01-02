@@ -136,7 +136,7 @@
     <div id="start-screen" class="screen">
       <h1>TenTenBrix</h1>
 
-      <p style="color: #ffce00; font-weight: bold; margin: 0 0 10px 0; font-size: 1rem;">[ TenTenJelly로 디자인변경중 ]</p>
+      <p style="color: #ffce00; font-weight: bold; margin: 0 0 10px 0; font-size: 1rem;">[ 관장님을 위한 난이도 조절 버전 ]</p>
 
       <p id="playerDisplay" style="font-size: 1.1rem; color: #ffffff; margin-bottom: 5px; opacity: 0.8;">PLAYER: -</p>
 
@@ -275,19 +275,23 @@
     }
 
     function resize() {
-      // 1. 가로 제약: 화면 너비의 98%를 사용 (가로 6칸에 최적화)
-      const widthSize = window.innerWidth * 0.98 / COLS;
+      // 1. 가로 너비를 기준으로 브릭 크기를 먼저 결정합니다. (양옆 여백 최소화)
+      // 화면 전체 너비의 98%를 6칸으로 나눕니다.
+      const sizeBasedOnWidth = (window.innerWidth * 0.98) / COLS;
 
-      // 2. 세로 제약: 상단 여백을 120 -> 40으로 대폭 축소 (UI와 겹치게 함)
-      // 하단 여백은 손가락 조작을 위해 60 정도만 남깁니다.
-      const heightSize = (window.innerHeight - 100) / ROWS;
+      // 2. 세로 높이를 기준으로 브릭 크기를 계산합니다.
+      // 상단 HUD와 겹쳐도 상관없으므로 여백을 거의 주지 않습니다. (전체 높이의 95%)
+      const sizeBasedOnHeight = (window.innerHeight * 0.95) / ROWS;
+
+      // 3. [핵심 변경] 이전보다 더 큰 값을 허용하도록 로직 수정
+      // 스마트폰은 세로가 길기 때문에 보통 가로 기준(sizeBasedOnWidth)으로 맞추는 것이 브릭이 가장 커집니다.
       BLOCK_SIZE = Math.min(sizeBasedOnWidth, sizeBasedOnHeight);
 
       // 4. 캔버스 크기 설정
       canvas.width = COLS * BLOCK_SIZE;
       canvas.height = ROWS * BLOCK_SIZE;
 
-     // 5. [추가] 화면 중앙 정렬 및 상단 밀착
+      // 5. [추가] 화면 중앙 정렬 및 상단 밀착
       canvas.style.position = "absolute";
       canvas.style.top = "0px"; // 최상단에 붙임 (HUD와 겹침 허용)
       canvas.style.left = "50%";
@@ -934,5 +938,3 @@
 </body>
 
 </html>
-
-
