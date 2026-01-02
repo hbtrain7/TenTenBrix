@@ -174,7 +174,8 @@
     const comboEl = document.getElementById('combo-text');
     const finalScoreEl = document.getElementById('finalScoreDisplay');
 
-    const COLS = 7, ROWS = 11;
+    const COLS = 6, ROWS = 11;
+    const DEADLINE = 1;
 
     const SPAWN_BALANCE_PROB = 0.5;    // 보정 확률 (0.5 = 50% 확률로 필요한 숫자 생성)
     const DANGER_THRESHOLD = 6;        // 보정 발동 조건 (한 숫자가 6개 이상 쌓였을 때)
@@ -578,7 +579,7 @@
           if (gy >= ROWS || (gy >= 0 && grid[gy] && grid[gy][b.x] !== 0)) {
             let fy = gy - 1;
             while (fy >= 0 && grid[fy] && grid[fy][b.x] !== 0) fy--;
-            if (fy < 2) { gameOver(); return; }
+            if (fy < DEADLINE) { gameOver(); return; }
             if (fy >= 0 && grid[fy]) {
               grid[fy][b.x] = { value: b.value, id: b.id, isDestroying: false };
               fallingBricks.splice(i, 1);
@@ -599,7 +600,7 @@
       for (let j = 0; j <= ROWS; j++) { ctx.beginPath(); ctx.moveTo(0, j * BLOCK_SIZE); ctx.lineTo(canvas.width, j * BLOCK_SIZE); ctx.stroke(); }
       const isDanger = checkDanger();
       ctx.strokeStyle = (isDanger && Math.floor(Date.now() / 250) % 2 === 0) ? "transparent" : (isDanger ? "#ff0000" : "#ff4b2b");
-      ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 2 * BLOCK_SIZE); ctx.lineTo(canvas.width, 2 * BLOCK_SIZE); ctx.stroke();
+      ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, DEADLINE * BLOCK_SIZE); ctx.lineTo(canvas.width, DEADLINE * BLOCK_SIZE); ctx.stroke();
       grid.forEach((row, y) => row.forEach((cell, x) => {
         if (cell) { ctx.save(); ctx.globalAlpha = cell.isDestroying ? 0.3 : 1.0; drawBrick(x, y, cell.value); ctx.restore(); }
       }));
@@ -786,7 +787,7 @@
     }
 
     function togglePause() { isPaused = !isPaused; if (!isPaused) { lastTime = performance.now(); requestAnimationFrame(update); } }
-    function checkDanger() { return grid[3] && grid[3].some(c => c !== 0); }
+    function checkDanger() { return grid[DEADLINE + 1] && grid[DEADLINE + 1].some(c => c !== 0); }
 
     // 랭킹 서버(구글 시트)로 점수 보내기
     function sendRankToServer(name, score) {
