@@ -281,16 +281,17 @@
       // 2. 세로 제약: 상단 여백을 120 -> 40으로 대폭 축소 (UI와 겹치게 함)
       // 하단 여백은 손가락 조작을 위해 60 정도만 남깁니다.
       const heightSize = (window.innerHeight - 100) / ROWS;
-
-      // 3. 둘 중 작은 값을 선택하여 브릭 크기 결정
-      BLOCK_SIZE = Math.min(widthSize, heightSize);
+      BLOCK_SIZE = Math.min(sizeBasedOnWidth, sizeBasedOnHeight);
 
       // 4. 캔버스 크기 설정
       canvas.width = COLS * BLOCK_SIZE;
       canvas.height = ROWS * BLOCK_SIZE;
 
-      // [추가] 캔버스를 상단 UI 영역까지 강제로 올리는 CSS 스타일
-      canvas.style.marginTop = "0px";
+     // 5. [추가] 화면 중앙 정렬 및 상단 밀착
+      canvas.style.position = "absolute";
+      canvas.style.top = "0px"; // 최상단에 붙임 (HUD와 겹침 허용)
+      canvas.style.left = "50%";
+      canvas.style.transform = "translateX(-50%)"; // 가로 중앙 정렬
     }
 
     function setupPlayerName() {
@@ -933,4 +934,5 @@
 </body>
 
 </html>
+
 
