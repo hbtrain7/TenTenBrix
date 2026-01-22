@@ -199,6 +199,8 @@
     let BLOCK_SIZE, grid = [], score = 0, combo = 0, autoCombo = 0, lastMatchTime = 0;
     let gameActive = false, isPaused = false, fallingBricks = [], lastTime = 0, spawnCounter = 0, selectedBricks = [];
     let effects = [];
+    const recentSpawns = [];
+    const RECENT_SPAWN_LIMIT = 12;
 
     let inventory = { crossBomb: 0 };
     let fieldItems = [];
@@ -207,13 +209,14 @@
     let globalBrickCounter = 0; // 브릭마다 번호를 하나씩 붙여줄 카운터
     const ITEM_THRESHOLD = 10000;
 
-    const TERMINAL_VELOCITY = 0.025;
+    // 시간 단위는 초(seconds) 기준으로 맞춥니다.
+    const TERMINAL_VELOCITY = 25; // grid units / second
     const STAGES = [
-      { score: 5000, interval: 1000, gravity: 0.00001, count: 1 },    // 1단계
-      { score: 10000, interval: 1000, gravity: 0.00001, count: 2 },   // 2단계
-      { score: 30000, interval: 900, gravity: 0.00001, count: 2 },   // 3단계
-      { score: 80000, interval: 900, gravity: 0.00002, count: 2 },    // 4단계 (추가!)
-      { score: 150000, interval: 900, gravity: 0.00002, count: 3 }    // 5단계 (추가!)
+      { score: 5000, interval: 1000, gravity: 10, count: 1 },    // 1단계
+      { score: 10000, interval: 1000, gravity: 10, count: 2 },   // 2단계
+      { score: 30000, interval: 900, gravity: 10, count: 2 },   // 3단계
+      { score: 80000, interval: 900, gravity: 20, count: 2 },    // 4단계 (추가!)
+      { score: 150000, interval: 900, gravity: 20, count: 3 }    // 5단계 (추가!)
     ];
 
     // 인트로 음원을 따로 두지 않고 gameOver 음원을 공용으로 사용합니다.
@@ -371,18 +374,34 @@
         }
       }
 
-      // 3. 브릭 생성 루프
+      // 3. 가중치 기반 스폰 (과도한 쏠림 방지 + 최근 출현 억제)
+      const pickValue = () => {
+        const weights = [];
+        let total = 0;
+        for (let v = 1; v <= 9; v++) {
+          const currentCount = counts[v] || 0;
+          let w = 1 / (1 + currentCount); // 많이 쌓인 숫자는 낮은 확률
+          if (targetPartner && v === targetPartner) w *= 1.5; // 필요한 짝꿍 약간 보정
+          if (recentSpawns.includes(v)) w *= 0.6; // 최근 출현 억제
+          if (currentCount >= DANGER_THRESHOLD) w *= 0.3; // 과도한 누적 억제
+          weights.push(w);
+          total += w;
+        }
+
+        let r = Math.random() * total;
+        for (let i = 0; i < weights.length; i++) {
+          r -= weights[i];
+          if (r <= 0) return i + 1;
+        }
+        return 1 + Math.floor(Math.random() * 9);
+      };
+
+      // 4. 브릭 생성 루프
       for (let i = 0; i < count; i++) {
         const x = Math.floor(Math.random() * COLS);
         if (grid[0][x] !== 0) { gameOver(); return; }
 
-        let val;
-        // 설정된 확률(SPAWN_BALANCE_PROB)에 따라 보정값 적용
-        if (targetPartner && Math.random() < SPAWN_BALANCE_PROB) {
-          val = targetPartner;
-        } else {
-          val = Math.floor(Math.random() * 9) + 1;
-        }
+        const val = pickValue();
 
         // 고유 ID 부여 (숫자가 같아도 서로 다른 브릭임을 증명)
         const uniqueId = `brick-${Date.now()}-${globalBrickCounter++}`;
@@ -394,6 +413,10 @@
           value: val,
           vy: 0
         });
+
+        // 최근 출현 히스토리 갱신
+        recentSpawns.push(val);
+        if (recentSpawns.length > RECENT_SPAWN_LIMIT) recentSpawns.shift();
       }
     }
 
@@ -403,7 +426,8 @@
         x: -50,
         // [수정] 위아래 100px 여백을 두어 너무 끝에 붙지 않게 함
         y: Math.random() * (canvas.height - 200) + 100,
-        vx: 2.5, // 너무 빠르지 않게
+        vx: 150, // px / second
+        angularSpeed: 3, // rad / second
         radius: 28, // 크기 살짝 키움
         type: 'crossBomb',
         angle: 0
@@ -509,7 +533,10 @@
                 }
                 // 낙하 브릭 확인
                 fallingBricks.forEach(fb => {
-                  if (fb.id === tId) fb.isVibrating = true;
+                  if (fb.id === tId) {
+                    fb.isVibrating = true;
+                    fb.isDestroying = true; // 매칭된 낙하 브릭은 즉시 착지 로직에서 제외
+                  }
                 });
               });
 
@@ -625,15 +652,29 @@
     }
 
     function globalAutoCheck() {
-      for (let y = ROWS - 1; y >= 0; y--) for (let x = 0; x < COLS; x++) if (grid[y][x]) checkAutoMatch(x, y);
+      const matched = new Set();
+      const pairs = [];
+
+      for (let y = ROWS - 1; y >= 0; y--) {
+        for (let x = 0; x < COLS - 1; x++) {
+          const b1 = grid[y][x];
+          const b2 = grid[y][x + 1];
+          if (!b1 || !b2) continue;
+          if (b1.isDestroying || b2.isDestroying) continue;
+          if (matched.has(b1) || matched.has(b2)) continue;
+          if (b1.value + b2.value !== 10) continue;
+
+          matched.add(b1);
+          matched.add(b2);
+          pairs.push({ x, y, nx: x + 1, b1, b2 });
+        }
+      }
+
+      pairs.forEach(p => triggerAutoMatch(p.b1, p.b2, p.x, p.y, p.nx));
     }
 
-    function checkAutoMatch(x, y) {
-      if (!grid[y] || !grid[y][x] || grid[y][x].isDestroying) return;
-      const nx = x + 1;
-      if (nx < COLS && grid[y][nx] && !grid[y][nx].isDestroying) {
-        if (grid[y][x].value + grid[y][nx].value === 10) {
-          const b1 = grid[y][x], b2 = grid[y][nx];
+    function triggerAutoMatch(b1, b2, x, y, nx) {
+      if (!b1 || !b2) return;
 
           // [개선] 오토매칭도 즉시 진동 시작!
           b1.isVibrating = true; b2.isVibrating = true;
@@ -645,7 +686,7 @@
 
           // 0.2초 진동 후 투명화 및 삭제 진행
           // 0.2초 진동 후 투명화 및 삭제 진행
-          setTimeout(() => {
+      setTimeout(() => {
             b1.isVibrating = false; b2.isVibrating = false;
             b1.isDestroying = true; b2.isDestroying = true;
             createBurstEffect(x, y, "#00ffcc");
@@ -666,28 +707,38 @@
               // 하나라도 지워졌다면 중력 적용
               if (deleted) applyGravity();
             }, 250);
-          }, 200); // 찰진 진동 시간
-        }
-      }
+      }, 200); // 찰진 진동 시간
     }
 
     function createBurstEffect(x, y, color = "#ffffff") {
-      for (let i = 0; i < 10; i++) effects.push({ px: (x + 0.5) * BLOCK_SIZE, py: (y + 0.5) * BLOCK_SIZE, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, life: 20, color: color });
+      for (let i = 0; i < 10; i++) {
+        effects.push({
+          px: (x + 0.5) * BLOCK_SIZE,
+          py: (y + 0.5) * BLOCK_SIZE,
+          vx: (Math.random() - 0.5) * 300, // px / second
+          vy: (Math.random() - 0.5) * 300, // px / second
+          life: 0.35, // seconds
+          color: color
+        });
+      }
     }
 
     function update(currentTime) {
       if (!gameActive || isPaused) return;
       try {
         const dt = currentTime - (lastTime || currentTime);
+        const dtSec = dt / 1000;
         lastTime = currentTime;
         let config = STAGES.find(s => score < s.score) || STAGES[STAGES.length - 1];
         spawnCounter += dt;
-        if (spawnCounter > config.interval) { spawnBricks(config.count); spawnCounter = 0; }
+        const shouldSpawn = spawnCounter > config.interval;
+        let landedThisFrame = false;
         for (let i = fallingBricks.length - 1; i >= 0; i--) {
           const b = fallingBricks[i];
           if (!b) continue;
-          b.vy = Math.min(TERMINAL_VELOCITY, b.vy + config.gravity * dt);
-          b.y += b.vy * dt;
+          if (b.isDestroying) continue; // 매칭된 낙하 브릭은 더 이상 착지 처리하지 않음
+          b.vy = Math.min(TERMINAL_VELOCITY, b.vy + config.gravity * dtSec);
+          b.y += b.vy * dtSec;
           const gy = Math.floor(b.y + 1);
           if (gy >= ROWS || (gy >= 0 && grid[gy] && grid[gy][b.x] !== 0)) {
             let fy = gy - 1;
@@ -696,11 +747,34 @@
             if (fy >= 0 && grid[fy]) {
               grid[fy][b.x] = { value: b.value, id: b.id, isDestroying: false };
               fallingBricks.splice(i, 1);
+              landedThisFrame = true;
               setTimeout(() => { globalAutoCheck(); applyGravity(); }, 30);
             }
           }
         }
-        fieldItems.forEach((it, i) => { it.x += it.vx; it.angle += 0.05; if (it.x > canvas.width + 50) fieldItems.splice(i, 1); });
+        if (shouldSpawn) {
+          if (!landedThisFrame) {
+            spawnBricks(config.count);
+            spawnCounter = 0;
+          } else {
+            // 착지 프레임에는 스폰을 살짝 미뤄서 "옆에서 갑자기 나타남" 체감을 줄입니다.
+            spawnCounter = config.interval - 1;
+          }
+        }
+        for (let i = fieldItems.length - 1; i >= 0; i--) {
+          const it = fieldItems[i];
+          it.x += it.vx * dtSec;
+          it.angle += it.angularSpeed * dtSec;
+          if (it.x > canvas.width + 50) fieldItems.splice(i, 1);
+        }
+
+        // 파편 효과(이펙트)도 시간 기반으로 업데이트
+        effects = effects.filter(ef => ef.life > 0);
+        effects.forEach((ef) => {
+          ef.px += ef.vx * dtSec;
+          ef.py += ef.vy * dtSec;
+          ef.life -= dtSec;
+        });
         draw();
         requestAnimationFrame(update);
       } catch (error) { requestAnimationFrame(update); }
@@ -791,14 +865,12 @@
       });
 
       // 8. 파편 효과 (팡! 터지는 이펙트)
-      effects = effects.filter(ef => ef.life > 0);
       effects.forEach((ef) => {
         ctx.save();
         ctx.fillStyle = ef.color;
-        ctx.globalAlpha = ef.life / 20;
+        ctx.globalAlpha = Math.max(0, ef.life / 0.35);
         ctx.beginPath(); ctx.arc(ef.px, ef.py, 3, 0, Math.PI * 2); ctx.fill();
         ctx.restore();
-        ef.px += ef.vx; ef.py += ef.vy; ef.life--;
       });
     }
 
@@ -867,20 +939,22 @@
       // 1. [기록 확인] 로컬 스토리지에서 하이스코어 가져오기 및 비교
       let savedBest = localStorage.getItem('tenten_best') || 0;
       savedBest = parseInt(savedBest);
+      let bestScoreAt = localStorage.getItem('tenten_best_at') || "";
       let isNewRecord = false;
 
       if (score > savedBest) {
         savedBest = score;
         localStorage.setItem('tenten_best', savedBest); // 신기록 로컬 저장
         isNewRecord = true;
-        // [추가] 신기록 달성 시에만 구글 시트로 전송!
-        // [수정] 점수를 먼저 보내고, 그 '성공 응답'을 받은 후에 랭킹을 불러옵니다.
-        sendRankToServer(playerName, savedBest).then(() => {
-          loadRanking();
-        });
-      } else {
-        loadRanking();
+        bestScoreAt = new Date().toISOString();
+        localStorage.setItem('tenten_best_at', bestScoreAt);
       }
+
+      // 점수는 최고점만, 플레이 시간은 매번 갱신
+      const lastPlayedAt = new Date().toISOString();
+      sendRankToServer(playerName, savedBest, bestScoreAt, lastPlayedAt).then(() => {
+        loadRanking();
+      });
 
       // 2. [연출] 화면 필터 및 변형 연출 (세피아 + 블러 + 축소)
       canvas.style.transition = "filter 0.5s ease, transform 0.5s ease";
@@ -938,6 +1012,7 @@
       if (playerEl) playerEl.innerText = "PLAYER: " + playerName;
       // 1. [추가] 시작 화면이 뜰 때 로컬 스토리지에서 베스트 스코어 가져오기
       const savedBest = localStorage.getItem('tenten_best') || 0;
+      const bestScoreAt = localStorage.getItem('tenten_best_at') || "";
       const mainBestEl = document.getElementById('mainBestDisplay'); // 상단에 추가한 BEST 표시용
       if (mainBestEl) {
         mainBestEl.innerText = "BEST: " + parseInt(savedBest).toLocaleString();
@@ -947,7 +1022,7 @@
       // 로컬스토리지에 '등록여부'를 체크해서 딱 한 번만 보내게 함
       const isRegistered = localStorage.getItem('tenten_rank_registered');
       if (savedBest > 0 && !isRegistered) {
-        sendRankToServer(playerName, savedBest);
+        sendRankToServer(playerName, savedBest, bestScoreAt, new Date().toISOString());
         localStorage.setItem('tenten_rank_registered', 'true'); // 등록 완료 마크
       }
 
@@ -971,16 +1046,16 @@
     function checkDanger() { return grid[DEADLINE + 1] && grid[DEADLINE + 1].some(c => c !== 0); }
 
     // 랭킹 서버(구글 시트)로 점수 보내기
-    function sendRankToServer(name, score) {
+    function sendRankToServer(name, score, bestScoreAt, lastPlayedAt) {
       if (!SCRIPT_URL || SCRIPT_URL.includes("여기에")) return Promise.resolve();
 
       return fetch(SCRIPT_URL, {
         method: "POST",
         mode: "no-cors", // CORS 에러 방지 (no-cors는 응답 확인이 어렵지만 데이터는 전송됨)
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name, score: score })
+        body: JSON.stringify({ name: name, score: score, bestScoreAt: bestScoreAt, lastPlayedAt: lastPlayedAt })
       }).then(() => {
-        console.log("랭킹 등록 완료:", name, score);
+        console.log("랭킹 등록 완료:", name, score, bestScoreAt, lastPlayedAt);
       }).catch(e => console.error("랭킹 등록 실패:", e));
     }
 
